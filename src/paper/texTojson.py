@@ -140,16 +140,20 @@ def main():
     with open(latex_file, 'r', encoding='utf-8') as f:
         latex_content = f.read()
 
+    print("开始提取显式数学环境...")
     extracted_data = extract_math_environments(latex_content)
+    print(f"提取到 {len(extracted_data)} 个显式环境。")
 
-    # Extract implicit definitions using LLM
+    print("开始提取隐式定义（使用 LLM）...")
     implicit_defs = extract_implicit_definitions(latex_content, api_key, base_url, model)
+    print(f"提取到 {len(implicit_defs)} 个隐式定义。")
 
-    # Merge and sort by position
+    print("合并和排序所有项目...")
     all_items = extracted_data + implicit_defs
     all_items.sort(key=lambda x: x["start"])
+    print(f"总共 {len(all_items)} 个项目。")
 
-    # Assign indices and format
+    print("分配索引并格式化...")
     for i, item in enumerate(all_items, start=1):
         item["index"] = i
         item["problem"] = item["content"]
@@ -159,6 +163,7 @@ def main():
 
     extracted_data = all_items
 
+    print("保存到输出文件...")
     # Ensure output directory exists
     out_dir = os.path.dirname(output_file)
     if out_dir:
@@ -167,7 +172,7 @@ def main():
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(extracted_data, f, ensure_ascii=False, indent=4)
 
-    print(f"Extracted data saved to {output_file}")
+    print(f"提取完成！数据已保存到 {output_file}")
 
 if __name__ == "__main__":
     main()
