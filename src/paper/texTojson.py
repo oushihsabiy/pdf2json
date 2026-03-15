@@ -340,6 +340,10 @@ PROOF_BTYPE = {"proof"}
 _FIG_BEGIN_RE = re.compile(r"\\begin\{(figure|table)\*?\}")
 _FIG_END_RE = re.compile(r"\\end\{(figure|table)\*?\}")
 
+# Remove other redundant environments
+_REDUNDANT_BEGIN_RE = re.compile(r"\\begin\{(abstract|acknowledgments?|bibliography|thebibliography|index|printindex)\*?\}")
+_REDUNDANT_END_RE = re.compile(r"\\end\{(abstract|acknowledgments?|bibliography|thebibliography|index|printindex)\*?\}")
+
 
 @dataclass
 class Node:
@@ -400,6 +404,7 @@ def build_nodes(tex_body: str) -> List[Node]:
     i = 0
     skip_contents = False
     fig_depth = 0
+    redundant_depth = 0
 
     def _heading_matches(line: str) -> bool:
         return bool(
@@ -427,6 +432,19 @@ def build_nodes(tex_body: str) -> List[Node]:
                 fig_depth += 1
             if _FIG_END_RE.search(line):
                 fig_depth -= 1
+            i += 1
+            continue
+
+        # drop redundant environments (abstract, acknowledgments, bibliography, etc.)
+        if redundant_depth == 0 and _REDUNDANT_BEGIN_RE.search(line):
+            redundant_depth = 1
+            i += 1
+            continue
+        if redundant_depth > 0:
+            if _REDUNDANT_BEGIN_RE.search(line):
+                redundant_depth += 1
+            if _REDUNDANT_END_RE.search(line):
+                redundant_depth -= 1
             i += 1
             continue
 
