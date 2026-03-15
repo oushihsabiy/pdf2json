@@ -334,6 +334,7 @@ BLOCK_START_RE = re.compile(r'^\s*%<BLOCK\s+type=(\w+)\s+label="((?:\\.|[^"])*)"
 BLOCK_END_RE = re.compile(r'^\s*%</BLOCK>\s*$')
 
 THEOREM_LIKE_BTYPE = {"defn", "thm", "lem", "prop", "cor", "alg", "algorithm"}
+PROOF_BTYPE = {"proof", "solution"}
 
 # Remove figures/tables early
 _FIG_BEGIN_RE = re.compile(r"\\begin\{(figure|table)\*?\}")
@@ -657,7 +658,15 @@ def build_units(nodes: List[Node], *, max_unit_chars: int) -> List[Unit]:
         # theorem-like block
         if nd.kind == "block" and (nd.btype or "") in THEOREM_LIKE_BTYPE:
             stmt = (nd.text or "").strip()
+            proof = ""
+            if i + 1 < len(nodes):
+                nd2 = nodes[i + 1]
+                if nd2.kind == "block" and (nd2.btype or "") in PROOF_BTYPE:
+                    proof = (nd2.text or "").strip()
+                    i += 1  # consume proof
             latex = stmt
+            if proof:
+                latex = latex.rstrip() + "\n\n" + proof.lstrip()
 
             btype = (nd.btype or "").strip().lower()
             hint = {
@@ -671,6 +680,11 @@ def build_units(nodes: List[Node], *, max_unit_chars: int) -> List[Unit]:
             }.get(btype, None)
 
             units.append(Unit(kind="theorem_like", ctx=nd.ctx, latex=latex, hint_env=hint))
+            i += 1
+            continue
+
+        # proof blocks should have been consumed
+        if nd.kind == "block" and (nd.btype or "") in PROOF_BTYPE:
             i += 1
             continue
 
@@ -797,15 +811,19 @@ LATEX_TO_JSON_PROMPT_TEMPLATE = (
     "Return VALID JSON ONLY (no markdown, no comments, no extra text).\n\n"
     "Output: a JSON array. Each element is an object with keys:\n"
     "  - env: one of [\"def\",\"thm\",\"lem\",\"prop\",\"alg\"]\n"
-    "  - content: the core statement in LaTeX (plain text or wrapped env is both acceptable)\n\n"
+    "  - content: the core statement in LaTeX (plain text or wrapped env is both acceptable)\n"
+    "  - proof: either \"\" or the COMPLETE \\begin{proof}...\\end{proof} or \\begin{solution}...\\end{solution} from the LaTeX\n\n"
     "Rules (strict):\n"
     "1) Never output env outside the allowed list. Never output env='text'.\n"
     "2) Only extract theorem/lemma/proposition/algorithm/corollary when explicitly marked in the LaTeX (e.g., \\begin{theorem}, \\begin{lemma}, etc.). Skip implicit or prose statements.\n"
     "3) For definitions: extract both explicit (e.g., \\begin{definition}) and implicit definitions comprehensively.\n"
     "4) Preserve source fidelity: keep wording, formulas, numbering, qualifiers, and references.\n"
     "5) Do NOT hallucinate or complete missing math content.\n"
-    "6) Drop non-problem noise (ToC, page headers/footers, figure/table remnants, prompt leakage).\n"
-    "7) If nothing usable as a theorem/definition/algorithm item exists, output [].\n\n"
+    "6) For research-paper text:\n"
+    "   - Put the statement into content.\n"
+    "   - Put the proof/solution text into proof only if explicitly present as \\begin{proof} or \\begin{solution}, otherwise set proof to \"\".\n"
+    "7) Drop non-problem noise (ToC, page headers/footers, figure/table remnants, prompt leakage).\n"
+    "8) If nothing usable as a theorem/definition/algorithm item exists, output [].\n\n"
     "Implicit dependency recovery mode: __IMPLICIT_MODE__\n"
     "- off: do not rewrite textual references.\n"
     "- llm: rewrite clear references like 'Theorem 6.1' -> 'Theorem~\\ref{thm:6.1}', 'Eq. (6.3)' -> '\\eqref{eq:6.3}'. If unsure, do not rewrite.\n\n"
@@ -1459,6 +1477,13 @@ def split_statement_and_solution(latex: str) -> Tuple[str, str]:
         stmt = s[: m_line.start()].strip()
         sol = s[m_line.end() :].strip()
         return stmt, sol
+
+    # For research papers: handle proof blocks
+    m_proof = re.search(r"(?is)\\begin\{proof\}(.*?)\\end\{proof\}", s)
+    if m_proof:
+        proof = (m_proof.group(1) or "").strip()
+        stmt = (s[: m_proof.start()] + "\n" + s[m_proof.end() :]).strip()
+        return stmt, proof
 
     return s, ""
 
@@ -2167,7 +2192,7 @@ def convert_tex_to_items(
         unit_ref_evidence = collect_ref_evidence(u.latex or '', unit_src_dep_keys)
 
         # Source fallback: keep original statement/proof/solution from this unit.
-        orig_stmt_txt = (u.latex or "").strip()
+        orig_stmt_txt, orig_proof_txt = split_statement_and_solution(u.latex or "")
         mp0 = re.search(r"(?s)\\begin\{proof\}.*?\\end\{proof\}", orig_stmt_txt or "")
         if mp0:
             if not orig_proof_txt.strip():
@@ -2194,6 +2219,7 @@ def convert_tex_to_items(
                     {
                         "env": fallback_env,
                         "content": orig_stmt_txt or (u.latex or "").strip(),
+                        "proof": orig_proof_txt,
                     }
                 ]
             else:
@@ -2216,6 +2242,7 @@ def convert_tex_to_items(
                                 {
                                     "env": "prop",
                                     "content": orig_stmt_txt.strip(),
+                                    "proof": orig_proof_txt.strip(),
                                 }
                             ]
                         else:
@@ -2227,6 +2254,7 @@ def convert_tex_to_items(
                             {
                                 "env": "prop",
                                 "content": orig_stmt_txt.strip(),
+                                "proof": orig_proof_txt.strip(),
                             }
                         ]
                     else:
