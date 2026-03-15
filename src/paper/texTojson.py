@@ -334,7 +334,6 @@ BLOCK_START_RE = re.compile(r'^\s*%<BLOCK\s+type=(\w+)\s+label="((?:\\.|[^"])*)"
 BLOCK_END_RE = re.compile(r'^\s*%</BLOCK>\s*$')
 
 THEOREM_LIKE_BTYPE = {"defn", "thm", "lem", "prop", "cor", "alg", "algorithm"}
-PROOF_BTYPE = {"proof"}
 
 # Remove figures/tables early
 _FIG_BEGIN_RE = re.compile(r"\\begin\{(figure|table)\*?\}")
@@ -658,15 +657,7 @@ def build_units(nodes: List[Node], *, max_unit_chars: int) -> List[Unit]:
         # theorem-like block
         if nd.kind == "block" and (nd.btype or "") in THEOREM_LIKE_BTYPE:
             stmt = (nd.text or "").strip()
-            proof = ""
-            if i + 1 < len(nodes):
-                nd2 = nodes[i + 1]
-                if nd2.kind == "block" and (nd2.btype or "") in PROOF_BTYPE:
-                    proof = (nd2.text or "").strip()
-                    i += 1  # consume proof
             latex = stmt
-            if proof:
-                latex = latex.rstrip() + "\n\n" + proof.lstrip()
 
             btype = (nd.btype or "").strip().lower()
             hint = {
@@ -680,11 +671,6 @@ def build_units(nodes: List[Node], *, max_unit_chars: int) -> List[Unit]:
             }.get(btype, None)
 
             units.append(Unit(kind="theorem_like", ctx=nd.ctx, latex=latex, hint_env=hint))
-            i += 1
-            continue
-
-        # proof blocks should have been consumed
-        if nd.kind == "block" and (nd.btype or "") in PROOF_BTYPE:
             i += 1
             continue
 
