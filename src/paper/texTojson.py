@@ -61,14 +61,19 @@ def call_llm(prompt, api_key, base_url, model):
 
 def extract_implicit_definitions(latex_content, api_key, base_url, model):
     prompt = f"""
-请从以下 LaTeX 文本中提取所有隐式的定义（definition），包括没有明确标记为 definition 的部分。
+请从以下 LaTeX 文本中提取所有隐式的定义（definition），即那些没有明确使用 \\begin{{definition}} 标记但内容是定义的部分。
+隐式的定义可能出现在 proposition、theorem、普通文本或其他环境中，例如以 "Let us define"、"We define"、"Define" 等开头的句子或段落，或者描述概念、符号、函数等的定义性内容。
+
 返回 JSON 格式的列表，每个元素包含：
-- "problem": 定义内容
+- "problem": 定义内容（包括相关数学表达式）
 - "proof": 如果有相关证明则填写，否则空字符串
 - "题目类型": "definition"
 - "预估难度": ""
 - "source": ""
 - "source_index": ""
+
+请确保只提取隐式的定义，不要包括显式的 \\begin{{definition}} 环境。
+如果没有找到隐式定义，返回空列表 []。
 
 文本：
 {latex_content}
