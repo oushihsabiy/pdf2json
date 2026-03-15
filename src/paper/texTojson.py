@@ -2,6 +2,7 @@ import re
 import json
 import os
 import requests
+from openai import OpenAI
 
 def extract_math_environments(latex_content):
     """
@@ -47,17 +48,21 @@ def extract_math_environments(latex_content):
     return extracted
 
 def call_llm(prompt, api_key, base_url, model):
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}]
-    }
-    response = requests.post(f"{base_url}/chat/completions", headers=headers, json=data)
-    response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"]
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            stream=True
+        )
+        content = ""
+        for chunk in response:
+            if chunk.choices[0].delta.content:
+                content += chunk.choices[0].delta.content
+        return content
+    except Exception as e:
+        print(f"LLM 调用失败: {e}")
+        return None
 
 def extract_implicit_definitions(latex_content, api_key, base_url, model):
     prompt = f"""
@@ -87,12 +92,18 @@ def extract_implicit_definitions(latex_content, api_key, base_url, model):
 """
     try:
         response = call_llm(prompt, api_key, base_url, model)
+        if response is None:
+            return []
         # 尝试解析 JSON
         implicit_defs = json.loads(response)
         # 添加 index
         for i, item in enumerate(implicit_defs, start=1):
             item["index"] = i
         return implicit_defs
+    except json.JSONDecodeError as e:
+        print(f"JSON 解析失败: {e}")
+        print(f"LLM 响应: {response}")
+        return []
     except Exception as e:
         print(f"LLM 调用失败: {e}")
         return []
