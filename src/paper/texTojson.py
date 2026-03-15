@@ -8,42 +8,36 @@ def extract_math_environments(latex_content):
     """
     Extract definition, lemma, proposition, theorem, corollary, proof, solution from LaTeX content.
     Associate proofs with the preceding theorem/proposition.
+    Returns list with start/end positions.
     """
     environments = ['definition', 'lemma', 'proposition', 'theorem', 'corollary']
     extracted = []
 
-    # Split content into parts, handling both \begin{env} and %<BLOCK type=env
-    parts = re.split(r'(\\(?:begin\{(?:' + '|'.join(environments) + r')\})|%<BLOCK type=(?:' + '|'.join(environments + ['proof']) + r'))', latex_content)
+    # Use finditer to get positions for environments
+    pattern = r'\\begin\{(' + '|'.join(environments) + r')\}(.*?)\\end\{\1\}'
+    for match in re.finditer(pattern, latex_content, re.DOTALL):
+        env_type = match.group(1)
+        env_content = match.group(2).strip()
+        start = match.start()
+        end = match.end()
+        extracted.append({
+            "start": start,
+            "end": end,
+            "type": env_type,
+            "content": env_content,
+            "proof": ""
+        })
 
-    current_problem = None
-    for i in range(1, len(parts), 2):
-        env_start = parts[i]
-        content = parts[i+1] if i+1 < len(parts) else ""
-        if env_start.startswith('\\begin{'):
-            env_type = re.search(r'\\begin\{([^}]+)\}', env_start).group(1)
-            end_pattern = r'\\end\{' + env_type + r'\}'
-        elif env_start.startswith('%<BLOCK type='):
-            env_type = re.search(r'%<BLOCK type=([^>\s]+)', env_start).group(1)
-            end_pattern = r'%</BLOCK>'
-        else:
-            continue
-        end_match = re.search(end_pattern, content)
-        if end_match:
-            env_content = content[:end_match.start()].strip()
-            if env_type in environments:
-                current_problem = {
-                    "index": len(extracted) + 1,
-                    "problem": env_content,
-                    "proof": "",
-                    "题目类型": env_type,
-                    "预估难度": "",
-                    "source": "",
-                    "source_index": ""
-                }
-                extracted.append(current_problem)
-            elif env_type == 'proof' and current_problem:
-                current_problem["proof"] = env_content
-                current_problem = None  # Reset after assigning proof
+    # Handle proofs
+    proof_pattern = r'\\begin\{proof\}(.*?)\\end\{proof\}'
+    for match in re.finditer(proof_pattern, latex_content, re.DOTALL):
+        proof_content = match.group(1).strip()
+        proof_start = match.start()
+        # Find the preceding theorem by checking positions
+        for item in reversed(extracted):
+            if item["type"] in environments and item["proof"] == "" and item["end"] < proof_start:
+                item["proof"] = proof_content
+                break
 
     return extracted
 
@@ -75,14 +69,15 @@ def extract_implicit_definitions(latex_content, api_key, base_url, model):
 - "We can rewrite τ as τ(c,A) = max{{|q(c,z)|:z ∈ W(A)}}" 这样的重写定义。
 
 返回 JSON 格式的列表，每个元素包含：
-- "problem": 定义内容（包括相关数学表达式）
+- "content": 定义内容（包括相关数学表达式）
 - "proof": 如果有相关证明则填写，否则空字符串
-- "题目类型": "definition"
+- "type": "definition"
+- "position": 定义在文本中开始的字符位置（从0开始）
 - "预估难度": ""
 - "source": ""
 - "source_index": ""
 
-请确保提取全面，不要遗漏任何潜在的定义。
+请确保提取全面，不要遗漏任何潜在的定义，按照它们在文本中出现的顺序排列。
 如果没有找到隐式定义，返回空列表 []。
 
 文本：
@@ -96,10 +91,21 @@ def extract_implicit_definitions(latex_content, api_key, base_url, model):
             return []
         # 尝试解析 JSON
         implicit_defs = json.loads(response)
-        # 添加 index
-        for i, item in enumerate(implicit_defs, start=1):
-            item["index"] = i
-        return implicit_defs
+        # 转换为统一格式
+        unified = []
+        for item in implicit_defs:
+            position = item.get("position", 0)
+            unified.append({
+                "start": position,
+                "end": position + len(item.get("content", "")),
+                "type": item.get("type", "definition"),
+                "content": item.get("content", ""),
+                "proof": item.get("proof", ""),
+                "预估难度": item.get("预估难度", ""),
+                "source": item.get("source", ""),
+                "source_index": item.get("source_index", "")
+            })
+        return unified
     except json.JSONDecodeError as e:
         print(f"JSON 解析失败: {e}")
         print(f"LLM 响应: {response}")
@@ -138,10 +144,20 @@ def main():
 
     # Extract implicit definitions using LLM
     implicit_defs = extract_implicit_definitions(latex_content, api_key, base_url, model)
-    # Adjust indices for implicit defs
-    for item in implicit_defs:
-        item["index"] = len(extracted_data) + item["index"]
-    extracted_data.extend(implicit_defs)
+
+    # Merge and sort by position
+    all_items = extracted_data + implicit_defs
+    all_items.sort(key=lambda x: x["start"])
+
+    # Assign indices and format
+    for i, item in enumerate(all_items, start=1):
+        item["index"] = i
+        item["problem"] = item["content"]
+        item["题目类型"] = item["type"]
+        # Remove unnecessary keys
+        del item["start"], item["end"], item["content"], item["type"]
+
+    extracted_data = all_items
 
     # Ensure output directory exists
     out_dir = os.path.dirname(output_file)
