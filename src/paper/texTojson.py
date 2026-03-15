@@ -1,6 +1,7 @@
 import re
 import json
 import os
+import requests
 
 def extract_math_environments(latex_content):
     """
@@ -45,6 +46,47 @@ def extract_math_environments(latex_content):
 
     return extracted
 
+def call_llm(prompt, api_key, base_url, model):
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    response = requests.post(f"{base_url}/chat/completions", headers=headers, json=data)
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
+
+def extract_implicit_definitions(latex_content, api_key, base_url, model):
+    prompt = f"""
+请从以下 LaTeX 文本中提取所有隐式的定义（definition），包括没有明确标记为 definition 的部分。
+返回 JSON 格式的列表，每个元素包含：
+- "problem": 定义内容
+- "proof": 如果有相关证明则填写，否则空字符串
+- "题目类型": "definition"
+- "预估难度": ""
+- "source": ""
+- "source_index": ""
+
+文本：
+{latex_content}
+
+请只返回 JSON 列表，不要其他内容。
+"""
+    try:
+        response = call_llm(prompt, api_key, base_url, model)
+        # 尝试解析 JSON
+        implicit_defs = json.loads(response)
+        # 添加 index
+        for i, item in enumerate(implicit_defs, start=1):
+            item["index"] = i
+        return implicit_defs
+    except Exception as e:
+        print(f"LLM 调用失败: {e}")
+        return []
+
 def main():
     import argparse
 
@@ -60,10 +102,25 @@ def main():
         print(f"File {latex_file} does not exist.")
         return
 
+    # Load config
+    config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config.json')
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    api_key = config['api_key']
+    base_url = config['base_url']
+    model = config['model']
+
     with open(latex_file, 'r', encoding='utf-8') as f:
         latex_content = f.read()
 
     extracted_data = extract_math_environments(latex_content)
+
+    # Extract implicit definitions using LLM
+    implicit_defs = extract_implicit_definitions(latex_content, api_key, base_url, model)
+    # Adjust indices for implicit defs
+    for item in implicit_defs:
+        item["index"] = len(extracted_data) + item["index"]
+    extracted_data.extend(implicit_defs)
 
     # Ensure output directory exists
     out_dir = os.path.dirname(output_file)
