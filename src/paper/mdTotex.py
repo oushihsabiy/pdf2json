@@ -21,6 +21,24 @@ THEOREM_MARK_RE = re.compile(
     re.IGNORECASE,
 )
 PROOF_MARK_RE = re.compile(r"^\s*Proof\s*\.?\s*$", re.IGNORECASE)
+# Inline bold format: **Theorem 1** content...  or  **Theorem 1.2** *content...*
+THEOREM_INLINE_RE = re.compile(
+    r"^\*\*(Theorem|Lemma|Proposition|Definition|Corollary)"
+    r"\s+(\d+(?:\.\d+)*)(?:\s*\([^)]*\))?\*\*\s*(.*)",
+    re.IGNORECASE,
+)
+# Inline italic proof: *Proof* content...  or  *Proof of Theorem N* content...
+PROOF_INLINE_RE = re.compile(
+    r"^\*(Proof(?:\s+of\s+[^*]*)?)\*\s*(.*)",
+    re.IGNORECASE,
+)
+_THEOREM_ENV_MAP = {
+    "theorem": "theorem",
+    "lemma": "lemma",
+    "proposition": "proposition",
+    "definition": "definition",
+    "corollary": "corollary",
+}
 TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
 
 
@@ -272,16 +290,12 @@ def convert_math_environments(paragraph: str) -> str:
         return ""
 
     first = lines[0].strip()
+
+    # Pattern 1: standalone theorem marker on its own line, e.g. "Theorem 1"
     tmatch = THEOREM_MARK_RE.match(first)
     if tmatch:
         name = tmatch.group(1).lower()
-        env = {
-            "theorem": "theorem",
-            "lemma": "lemma",
-            "proposition": "proposition",
-            "definition": "definition",
-            "corollary": "corollary",
-        }[name]
+        env = _THEOREM_ENV_MAP.get(name, "theorem")
         body_lines = lines[1:]
 
         proof_index = -1
@@ -302,6 +316,27 @@ def convert_math_environments(paragraph: str) -> str:
         body = "\n".join(convert_inline_text(ln) for ln in body_lines).strip()
         return f"\\begin{{{env}}}\n{body}\n\\end{{{env}}}"
 
+    # Pattern 2: inline bold format: **Theorem 1** content...
+    imatch = THEOREM_INLINE_RE.match(first)
+    if imatch:
+        name = imatch.group(1).lower()
+        env = _THEOREM_ENV_MAP.get(name, "theorem")
+        first_content = imatch.group(3).strip()
+        # Strip surrounding italic markers if the content is wrapped in *...*
+        first_content = re.sub(r"^\*(.+)\*$", r"\1", first_content)
+        body_lines = ([first_content] if first_content else []) + lines[1:]
+        body = "\n".join(convert_inline_text(ln) for ln in body_lines).strip()
+        return f"\\begin{{{env}}}\n{body}\n\\end{{{env}}}"
+
+    # Pattern 3: inline italic proof: *Proof* content...  or  *Proof of Theorem N* content...
+    pmatch = PROOF_INLINE_RE.match(first)
+    if pmatch:
+        first_content = pmatch.group(2).strip()
+        body_lines = ([first_content] if first_content else []) + lines[1:]
+        body = "\n".join(convert_inline_text(ln) for ln in body_lines).strip()
+        return f"\\begin{{proof}}\n{body}\n\\end{{proof}}"
+
+    # Pattern 4: standalone "Proof." on its own line
     if PROOF_MARK_RE.match(first):
         body_lines = lines[1:]
         body = "\n".join(convert_inline_text(ln) for ln in body_lines).strip()
