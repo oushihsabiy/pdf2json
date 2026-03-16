@@ -41,6 +41,11 @@ LATEX_CONVERT_PROMPT = (
     "B) Only wrap a proof environment if the input explicitly contains a standalone 'Proof.' marker line.\n"
     "C) For EVERY theorem-like block, the FIRST LINE inside the environment MUST be the plain text title/number,\n"
     "   e.g. 'Theorem 2.1.' (do NOT use \\textbf for that line).\n"
+    "D) NEVER place \\begin{proof} ... \\end{proof} inside theorem-like environments (thm/lem/prop/cor/defn).\n"
+    "   The theorem-like environment must contain only the statement/definition content.\n"
+    "   If there is a proof, close the theorem-like environment first, then emit a separate external proof block:\n"
+    "   \\begin{thm} ... \\end{thm}\n"
+    "   \\begin{proof} ... \\end{proof}\n"
     "\n"
     "Math rules:\n"
     "- Inline math: use $...$.\n"
@@ -300,6 +305,33 @@ def normalize_unicode_symbols(latex: str) -> str:
     return latex
 
 
+THEOREM_LIKE_BLOCK_RE = re.compile(
+    r"\\begin\{(?P<env>defn|thm|lem|prop|cor)\}\s*(?P<body>.*?)\\end\{\1\}",
+    re.DOTALL,
+)
+
+PROOF_BLOCK_RE = re.compile(r"\s*\\begin\{proof\}.*?\\end\{proof\}\s*", re.DOTALL)
+
+
+def externalize_embedded_proofs(latex: str) -> str:
+    def repl(m: re.Match) -> str:
+        env = m.group("env")
+        body = m.group("body")
+        proofs = PROOF_BLOCK_RE.findall(body)
+        if not proofs:
+            return m.group(0)
+
+        statement_body = PROOF_BLOCK_RE.sub("\n", body)
+        statement_body = statement_body.strip()
+        theorem_block = f"\\begin{{{env}}}\n{statement_body}\n\\end{{{env}}}"
+        proof_blocks = "\n\n".join(p.strip() for p in proofs if p.strip())
+        if not proof_blocks:
+            return theorem_block
+        return theorem_block + "\n\n" + proof_blocks
+
+    return THEOREM_LIKE_BLOCK_RE.sub(repl, latex)
+
+
 @retry(
     reraise=True,
     stop=stop_after_attempt(2),
@@ -343,6 +375,7 @@ def markdown_to_latex(client: OpenAI, model: str, markdown: str, max_tokens: int
     text = strip_outer_document(text)
     text = normalize_display_math(text)
     text = normalize_unicode_symbols(text)
+    text = externalize_embedded_proofs(text)
     return text.strip()
 
 

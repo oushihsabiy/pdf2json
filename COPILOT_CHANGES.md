@@ -14,3 +14,14 @@
 
 ### 影响范围
 - 仅新增文档，不影响现有代码执行逻辑。
+
+### 变更任务
+- 调整 paper 的 Markdown 转 LaTeX 逻辑，禁止在 theorem/lemma/proposition/corollary/definition 环境内部内嵌 proof。
+
+### 具体修改内容
+- 更新 [src/paper/mdTotex.py](src/paper/mdTotex.py) 的提示词，明确要求 proof 必须作为独立的外置 `\\begin{proof} ... \\end{proof}` 块输出。
+- 新增后处理逻辑：如果模型仍把 `proof` 生成在 `thm/lem/prop/cor/defn` 环境内部，会自动拆出并移动到对应 theorem-like 环境之后。
+- 将 proof 外提逻辑放在 LaTeX 清洗阶段统一执行，减少下游解析歧义。
+
+### 影响范围
+- [src/paper/mdTotex.py](src/paper/mdTotex.py) 生成的 LaTeX 结构更稳定，便于 [src/paper/texTojson.py](src/paper/texTojson.py) 后续解析 theorem 与 proof 的对应关系。
