@@ -345,8 +345,9 @@ def generate_latex_document(content: str) -> str:
 
 
 def write_tex(path: Path, latex_content: str) -> None:
-    if path.suffix.lower() != ".tex":
-        raise ValueError(f"Output file must be a .tex file: {path}")
+    name = path.name.lower()
+    if not (name.endswith(".tex") or name.endswith(".tex.tmp")):
+        raise ValueError(f"Output file must be a .tex or .tex.tmp file: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(latex_content, encoding="utf-8")
 
