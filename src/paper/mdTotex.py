@@ -1036,6 +1036,9 @@ def heading_block_to_latex(heading_md: str) -> str:
     if nm:
         num = nm.group(1)
         title = nm.group(2).strip()
+        # Guard against false positives from matrix rows like "0 & 2\\".
+        if not re.match(r"^[A-Za-z][A-Za-z0-9\-\s,:;()]*$", title):
+            return first
         depth = num.count(".")
         if depth == 0:
             cmd = "section"
@@ -1351,33 +1354,171 @@ def markdown_to_latex(client: OpenAI, model: str, markdown: str, max_tokens: int
     return heal_latex_fragment(raw)
 
 
-def convert_block_to_latex(
-    block: Block,
+def _parse_proof_split_response(text: str) -> Tuple[str, str]:
+    t = (text or "").strip()
+    t = strip_code_fences(t)
+    t = strip_outer_document(t)
+    m = re.search(r"(?s)<<<PROOF>>>\s*(.*?)\s*<<<REST>>>\s*(.*)\s*$", t)
+    if not m:
+        return "", ""
+    return m.group(1).strip(), m.group(2).strip()
+
+
+def _split_proof_output(text: str) -> Tuple[str, str]:
+    return _parse_proof_split_response(text)
+
+
+@retry(
+    reraise=True,
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=6),
+    retry=retry_if_exception_type(Exception),
+)
+def markdown_proof_split_to_latex(
     client: OpenAI,
     model: str,
+    markdown: str,
     max_tokens: int,
-) -> str:
+) -> Tuple[str, str]:
     """
-    Convert a single semantic block to LaTeX.
-    
-    - heading blocks: pass through (already structured)
-    - statement/proof blocks: convert with LLM
-    - paragraph blocks: convert with LLM
+    Convert a proof chunk and split it into:
+      - proof environment part
+      - trailing non-proof part
     """
-    md = (block.md or "").strip()
-    if not md:
-        return ""
-    
-    # Headings pass through unchanged
-    if block.kind == "heading":
-        return md
-    
-    # Math blocks may not need conversion
-    if not block.kind or block.kind == "para":
-        return markdown_to_latex(client, model, md, max_tokens)
-    
-    # Statement, proof, definition, etc.
-    return markdown_to_latex(client, model, md, max_tokens)
+    md_in = sanitize_ocr_markdown(markdown or "")
+    md_ph, mapping, _seq = replace_display_math_with_placeholders(md_in)
+
+    prompt = PROOF_SPLIT_PROMPT + md_ph.strip()
+    raw = _chat_complete_text(
+        client,
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=max_tokens,
+        temperature=0.0,
+        top_p=1.0,
+    )
+    raw = strip_code_fences(raw)
+    raw = strip_outer_document(raw)
+    _validate_llm_tex_output(raw)
+
+    proof_part, rest_part = _split_proof_output(raw)
+    if mapping:
+        proof_part = restore_display_math_placeholders(proof_part, mapping)
+        rest_part = restore_display_math_placeholders(rest_part, mapping)
+
+    proof_tex = heal_latex_fragment(proof_part)
+    rest_tex = heal_latex_fragment(rest_part)
+    return proof_tex.strip(), rest_tex.strip()
+
+
+_TAG_RE = re.compile(r"\\tag\*?\{([^}]+)\}")
+
+
+def filter_and_dedupe_tags(latex: str, allowed_tags: set[str]) -> str:
+    allowed = set([t.strip() for t in (allowed_tags or set()) if t and t.strip()])
+    seen: set[str] = set()
+
+    def _repl(m: re.Match) -> str:
+        tag = (m.group(1) or "").strip()
+        if allowed and tag not in allowed:
+            return ""
+        if tag in seen:
+            return ""
+        seen.add(tag)
+        return m.group(0)
+
+    return _TAG_RE.sub(_repl, latex or "")
+
+
+def star_all_equation_like_envs(latex: str) -> str:
+    """Suppress auto-numbering; we rely on recovered/manual tags."""
+    s = latex or ""
+    for base in ["equation", "align", "gather", "multline", "flalign"]:
+        s = re.sub(rf"\\begin\{{{base}\}}", rf"\\begin{{{base}*}}", s)
+        s = re.sub(rf"\\end\{{{base}\}}", rf"\\end{{{base}*}}", s)
+    return s
+
+
+# =========================
+# Block sentinels (for downstream texTojson)
+# =========================
+
+ENV_BLOCK_RE = re.compile(
+    r"\\begin\{(?P<env>defn|thm|lem|prop|cor|proof)\}\s*(?P<body>.*?)\\end\{\1\}",
+    re.DOTALL,
+)
+
+NUMBERED_TITLE_RE = re.compile(
+    r"\b(Theorem|Lemma|Proposition|Corollary|Definition)\s+([0-9]+(?:\.[0-9]+)*)\s*\.?",
+    re.IGNORECASE,
+)
+
+
+def _first_nonempty_line(s: str) -> str:
+    for ln in (s or "").splitlines():
+        t = ln.strip()
+        if t:
+            return t
+    return ""
+
+
+def _strip_simple_latex_cmds(s: str) -> str:
+    s = re.sub(r"\\textbf\{([^}]*)\}", r"\1", s)
+    s = re.sub(r"\\emph\{([^}]*)\}", r"\1", s)
+    s = re.sub(r"\\mathbf\{([^}]*)\}", r"\1", s)
+    s = s.replace("\\(", "").replace("\\)", "")
+    s = s.replace("\\[", "").replace("\\]", "")
+    return s.strip()
+
+
+def extract_short_label(env: str, body: str) -> str:
+    if env == "proof":
+        return "Proof"
+
+    head = "\n".join((body or "").splitlines()[:8])
+    head_plain = _strip_simple_latex_cmds(head)
+
+    m = NUMBERED_TITLE_RE.search(head_plain)
+    if m:
+        kind = m.group(1).title()
+        num = m.group(2)
+        return f"{kind} {num}"
+
+    line = _strip_simple_latex_cmds(_first_nonempty_line(body))
+    if not line:
+        return "UNKNOWN"
+    if len(line) > 120:
+        return line[:120] + "..."
+    return line
+
+
+def escape_attr(s: str) -> str:
+    s = (s or "").replace("\\", "\\\\")
+    s = s.replace('"', '\\"')
+    s = s.replace("\n", "\\n")
+    return s
+
+
+def insert_block_sentinels(latex: str) -> str:
+    if "%<BLOCK" in (latex or ""):
+        return (latex or "").strip()
+
+    out: List[str] = []
+    pos = 0
+    src = latex or ""
+    for m in ENV_BLOCK_RE.finditer(src):
+        out.append(src[pos:m.start()])
+        env = m.group("env")
+        body = m.group("body")
+
+        label = extract_short_label(env, body)
+        out.append(f'%<BLOCK type={env} label="{escape_attr(label)}">\n')
+        out.append(m.group(0))
+        out.append("\n%</BLOCK>\n")
+        pos = m.end()
+
+    out.append(src[pos:])
+    return "".join(out).strip()
 
 
 def convert_blocks_to_latex(
@@ -1386,29 +1527,108 @@ def convert_blocks_to_latex(
     model: str,
     max_tokens: int,
     workers: int = 4,
-) -> str:
-    """
-    Convert all semantic blocks to LaTeX in parallel (where safe).
-    Respect order, preserve heading boundaries.
-    """
+) -> List[str]:
+    """Convert semantic blocks and preserve original order."""
     if not blocks:
-        return ""
-    
-    results: List[str] = []
-    
-    # For now: sequential conversion to preserve chunk semantics
-    # (parallel conversion would require careful coordination to avoid heading/statement merging)
-    for i, block in enumerate(tqdm(blocks, desc="[convert]")):
+        return []
+
+    results: Dict[int, List[str]] = {}
+
+    def _convert_one(idx: int, blk: Block) -> Tuple[int, List[str]]:
         try:
-            tex = convert_block_to_latex(block, client, model, max_tokens)
-            results.append(tex)
+            if blk.kind == "heading":
+                latex_h = heading_block_to_latex(blk.md)
+                return idx, ([latex_h] if latex_h else [])
+
+            if not blk.md.strip():
+                return idx, []
+
+            if blk.kind == "proof":
+                try:
+                    p_latex, r_latex = markdown_proof_split_to_latex(
+                        client=client,
+                        model=model,
+                        markdown=blk.md,
+                        max_tokens=max_tokens,
+                    )
+                    if p_latex:
+                        outs = [insert_block_sentinels(p_latex)]
+                        if r_latex.strip():
+                            outs.append(insert_block_sentinels(r_latex))
+                        return idx, outs
+                except Exception as e:
+                    print(f"[convert] block {idx} proof-split failed: {e}", file=sys.stderr)
+
+                latex = markdown_to_latex(client, model, blk.md, max_tokens=max_tokens)
+                latex = insert_block_sentinels(latex)
+                return idx, ([latex] if latex else [])
+
+            latex = markdown_to_latex(client, model, blk.md, max_tokens=max_tokens)
+            latex = insert_block_sentinels(latex)
+            return idx, ([latex] if latex else [])
+
         except Exception as e:
-            print(f"[convert] block {i} ({block.kind}): {e}", file=sys.stderr)
-            # Fallback: output block as-is (minimal loss)
-            results.append(block.md)
-    
-    # Join with blank lines for readability
-    return "\n\n".join([r for r in results if r and r.strip()]).strip()
+            print(f"[convert] block {idx} ({blk.kind}) failed: {e}", file=sys.stderr)
+            fallback = (blk.md or "").strip()
+            if blk.kind == "heading" and fallback:
+                fallback = heading_block_to_latex(fallback)
+            return idx, ([fallback] if fallback else [])
+
+    with ThreadPoolExecutor(max_workers=max(1, int(workers))) as ex:
+        futs = {ex.submit(_convert_one, i, blk): i for i, blk in enumerate(blocks)}
+        for fut in tqdm(as_completed(futs), total=len(futs), desc="Semantic conversion (blocks)"):
+            idx = futs[fut]
+            try:
+                i, outs = fut.result()
+                results[i] = outs
+            except Exception as e:
+                print(f"[convert] block {idx} future failed: {e}", file=sys.stderr)
+                fallback = (blocks[idx].md or "").strip()
+                if blocks[idx].kind == "heading" and fallback:
+                    fallback = heading_block_to_latex(fallback)
+                results[idx] = [fallback] if fallback else []
+
+    body_chunks: List[str] = []
+    for i in range(len(blocks)):
+        for piece in results.get(i, []):
+            if piece and piece.strip():
+                body_chunks.append(piece.strip())
+    return body_chunks
+
+
+# =========================
+# Document template
+# =========================
+
+def build_tex_document(body_chunks: List[str]) -> str:
+    preamble = r"""\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+% OCR sometimes outputs non-standard optimization operators
+\providecommand{\minimize}{\min}
+\providecommand{\maximize}{\max}
+
+% Theorem-like env names for downstream parsing
+\newtheorem{thm}{Theorem}[section]
+\newtheorem{lem}[thm]{Lemma}
+\newtheorem{prop}[thm]{Proposition}
+\newtheorem{cor}[thm]{Corollary}
+THEOREMSTYLE_MARKER
+\newtheorem{defn}[thm]{Definition}
+
+\begin{document}
+"""
+    end = r"""
+\end{document}
+"""
+    preamble = preamble.replace("THEOREMSTYLE_MARKER", "\\theoremstyle{definition}")
+    body = "\n\n".join([c for c in body_chunks if c and c.strip()]).rstrip()
+    return preamble + body + "\n" + end
 
 
 # =========================
@@ -1540,9 +1760,9 @@ def main() -> None:
     )
 
     # ---- Conversion layer ----
-    # (10) Convert each block Markdown→LaTeX using LLM
+    # (10) Convert semantic blocks in parallel while preserving order
     max_tokens = int(get_setting(settings, "MDTOTEX_MAX_TOKENS", 2048))
-    latex = convert_blocks_to_latex(
+    body_chunks = convert_blocks_to_latex(
         blocks=blocks,
         client=client,
         model=model,
@@ -1550,18 +1770,25 @@ def main() -> None:
         workers=workers,
     )
 
-    print(f"[convert] done — {len(latex)} chars")
+    body_joined = "\n\n".join(body_chunks).strip()
+    print(f"[convert] done — chunks={len(body_chunks)}, chars={len(body_joined)}")
 
     # ---- Post-fix / Assembly layer ----
-    # (11) Final sanity checks and document assembly
-    latex = latex.strip()
-    
-    if not latex:
+    # (11) Final sanitation and deterministic assembly
+    if not body_joined:
         print(f"ERROR: Conversion produced empty output", file=sys.stderr)
         sys.exit(3)
 
+    allowed_tags = set(re.findall(r"\\tag\{([^}]+)\}", full_md))
+    body_joined = filter_and_dedupe_tags(body_joined, allowed_tags)
+    body_joined = heal_latex_fragment(body_joined)
+    body_joined = star_all_equation_like_envs(body_joined)
+    body_joined = heal_latex_fragment(body_joined)
+
+    tex = build_tex_document([body_joined])
+
     # (12) Write output
-    out_tex.write_text(latex, encoding="utf-8")
+    out_tex.write_text(tex, encoding="utf-8")
     print(f"[output] LaTeX written to {out_tex}")
 
 
