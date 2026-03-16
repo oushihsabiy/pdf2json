@@ -389,6 +389,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("input_md", help="Path to input Markdown file")
     parser.add_argument("output_tex", help="Path to output TeX file")
+    parser.add_argument("--workers", type=int, default=None, help="(ignored) Worker count placeholder for pipeline compatibility")
     return parser
 
 
