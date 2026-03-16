@@ -397,6 +397,30 @@ def convert_paragraph(content: str) -> str:
     return "\n".join(convert_inline_text(ln) for ln in content.split("\n"))
 
 
+def _extract_proof_body_from_paragraph(content: str) -> Optional[str]:
+    lines = [ln.rstrip() for ln in content.split("\n") if ln.strip()]
+    if not lines:
+        return None
+
+    proof_header = _parse_proof_header(lines[0])
+    if proof_header is None:
+        return None
+
+    proof_content_lines: List[str] = [proof_header] if proof_header else []
+    proof_content_lines.extend(lines[1:])
+    return "\n".join(convert_inline_text(ln) for ln in proof_content_lines).strip()
+
+
+def _paragraph_first_line(content: str) -> str:
+    lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
+    return lines[0] if lines else ""
+
+
+def _paragraph_has_qed_end(content: str) -> bool:
+    text = (content or "").strip()
+    return bool(re.search(r"(\\square|\$\\square\$|□|∎)\s*$", text))
+
+
 # ---- document assembly ----
 
 
@@ -425,9 +449,53 @@ def convert_markdown_to_latex(md_text: str) -> str:
     blocks = parse_blocks(md_text)
     out_blocks: List[str] = []
 
-    for blk in blocks:
+    i = 0
+    while i < len(blocks):
+        blk = blocks[i]
         kind = blk.get("type", "")
         content = blk.get("content", "")
+
+        # Keep display equations and following text inside proof when proof starts.
+        if kind == "paragraph":
+            initial_proof = _extract_proof_body_from_paragraph(content)
+            if initial_proof is not None:
+                proof_parts: List[str] = []
+                if initial_proof:
+                    proof_parts.append(initial_proof)
+
+                j = i + 1
+                proof_closed = _paragraph_has_qed_end(content)
+                while j < len(blocks):
+                    if proof_closed:
+                        break
+
+                    nxt = blocks[j]
+                    ntype = nxt.get("type", "")
+                    ncontent = nxt.get("content", "")
+
+                    if ntype == "equation":
+                        proof_parts.append(convert_equation(ncontent))
+                        j += 1
+                        continue
+
+                    if ntype == "paragraph":
+                        first_line = _paragraph_first_line(ncontent)
+                        if _parse_theorem_header(first_line) is not None:
+                            break
+                        if _parse_proof_header(first_line) is not None:
+                            break
+                        proof_parts.append("\n".join(convert_inline_text(ln) for ln in ncontent.split("\n")))
+                        if _paragraph_has_qed_end(ncontent):
+                            proof_closed = True
+                        j += 1
+                        continue
+
+                    break
+
+                proof_body = "\n\n".join(part for part in proof_parts if part.strip())
+                out_blocks.append(f"\\begin{{proof}}\n{proof_body}\n\\end{{proof}}")
+                i = j
+                continue
 
         if kind == "heading":
             out_blocks.append(convert_heading(content))
@@ -447,6 +515,8 @@ def convert_markdown_to_latex(md_text: str) -> str:
             out_blocks.append(convert_paragraph(content))
         else:
             out_blocks.append(convert_inline_text(content))
+
+        i += 1
 
     body = "\n\n".join(x for x in out_blocks if x.strip())
     return assemble_latex_document(body)
