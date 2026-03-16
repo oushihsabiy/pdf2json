@@ -9,6 +9,7 @@ import argparse
 import json
 import re
 import sys
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -538,6 +539,554 @@ def pagewise_tag_recovery(
 
 
 # =========================
+# Display-math placeholders
+# (needed by attach_standalone_equation_numbers)
+# =========================
+
+PLACEHOLDER_PREFIX = "ZZZ_MATHBLOCK_"
+PLACEHOLDER_SUFFIX = "_ZZZ"
+
+# Matches $$ ... $$, \[ ... \], and equation/align/gather/multline/flalign[*]
+_DISPLAY_MATH_BLOCK_RE = re.compile(
+    r"(?s)"
+    r"(?<!\\)\$\$.*?\$\$"
+    r"|(?<!\\)\\\[.*?\\\]"
+    r"|\\begin\{(?P<env>(?:equation|align|gather|multline|flalign)\*?)\}.*?\\end\{(?P=env)\}"
+)
+
+_PLACEHOLDER_RE = re.compile(r"\bZZZ_MATHBLOCK_\d{4}_ZZZ\b")
+_TAG_TOKEN_RE = re.compile(r"\\tag\*?\{[^}]*\}")
+
+
+def _needs_aligned_wrapper(body: str) -> bool:
+    s = body or ""
+    if re.search(
+        r"\\begin\{(?:aligned|alignedat|split|array|cases|matrix|pmatrix|bmatrix|vmatrix|Vmatrix|smallmatrix)\}",
+        s,
+    ):
+        return False
+    return "\\\\" in s or "&" in s
+
+
+def _build_bracket_display_math(inner: str) -> str:
+    body = (inner or "").strip()
+    tags = [t.strip() for t in _TAG_TOKEN_RE.findall(body) if t.strip()]
+    body_wo_tags = _TAG_TOKEN_RE.sub("", body).strip()
+    body_wrapped = (
+        "\\begin{aligned}\n" + body_wo_tags.strip() + "\n\\end{aligned}"
+        if _needs_aligned_wrapper(body_wo_tags)
+        else body_wo_tags
+    )
+    tag_text = "\n" + "\n".join(tags) if tags else ""
+    return "\\[\n" + body_wrapped.strip("\n") + tag_text + "\n\\]"
+
+
+def sanitize_display_math_block(block: str) -> str:
+    """Normalise a display-math block to \\[...\\] or align*."""
+    b = (block or "").strip()
+    m = re.match(r"(?s)^\$\$(.*?)\$\$$", b)
+    if m:
+        return _build_bracket_display_math(m.group(1))
+    m = re.match(r"(?s)^\\\[(.*?)\\\]$", b)
+    if m:
+        return _build_bracket_display_math(m.group(1))
+    m = re.match(
+        r"(?s)^\\begin\{(?P<env>(?:equation|gather|multline|flalign|align)\*?)\}(?P<body>.*)\\end\{(?P=env)\}$",
+        b,
+    )
+    if m:
+        env = m.group("env")
+        body = (m.group("body") or "").strip("\n")
+        base = env[:-1] if env.endswith("*") else env
+        if base == "align":
+            return "\\begin{align*}\n" + body + "\n\\end{align*}"
+        return _build_bracket_display_math(body)
+    return _build_bracket_display_math(b)
+
+
+def replace_display_math_with_placeholders(
+    markdown: str,
+) -> Tuple[str, Dict[str, str], List[str]]:
+    """Replace display-math blocks with immutable placeholder tokens."""
+    mapping: Dict[str, str] = {}
+    seq: List[str] = []
+    idx = 0
+
+    def _repl(m: re.Match) -> str:
+        nonlocal idx
+        idx += 1
+        ph = f"{PLACEHOLDER_PREFIX}{idx:04d}{PLACEHOLDER_SUFFIX}"
+        seq.append(ph)
+        mapping[ph] = sanitize_display_math_block(m.group(0))
+        return "\n" + ph + "\n"
+
+    md2 = _DISPLAY_MATH_BLOCK_RE.sub(_repl, markdown or "")
+    return md2, mapping, seq
+
+
+def restore_display_math_placeholders(latex: str, mapping: Dict[str, str]) -> str:
+    if not mapping:
+        return latex or ""
+
+    def _repl(m: re.Match) -> str:
+        return mapping.get(m.group(0), m.group(0))
+
+    return _PLACEHOLDER_RE.sub(_repl, latex or "")
+
+
+def split_markdown_by_display_math(markdown: str) -> List[Tuple[str, str]]:
+    """Split markdown into [(kind, segment)] where kind is 'text' or 'math'."""
+    s = markdown or ""
+    out: List[Tuple[str, str]] = []
+    pos = 0
+    for m in _DISPLAY_MATH_BLOCK_RE.finditer(s):
+        if m.start() > pos:
+            out.append(("text", s[pos : m.start()]))
+        out.append(("math", m.group(0)))
+        pos = m.end()
+    if pos < len(s):
+        out.append(("text", s[pos:]))
+    return out
+
+
+# =========================
+# Markdown post-fix: attach standalone equation numbers like "(1.4)"
+# =========================
+
+_STANDALONE_EQNUM_LINE_RE = re.compile(r"^\s*\((\d+(?:\.\d+)*)\)\s*$")
+
+
+def _extract_display_math_inner(block: str) -> str:
+    b = (block or "").strip()
+    m = re.match(r"(?s)^\$\$(.*?)\$\$$", b)
+    if m:
+        inner = m.group(1)
+    else:
+        m = re.match(r"(?s)^\\\[(.*?)\\\]$", b)
+        if m:
+            inner = m.group(1)
+        else:
+            m = re.match(
+                r"(?s)^\\begin\{(?P<env>(?:equation|gather|multline|flalign|align)\*?)\}(?P<body>.*)\\end\{(?P=env)\}$",
+                b,
+            )
+            inner = m.group("body") if m else b
+    inner = _TAG_TOKEN_RE.sub("", inner or "").strip()
+    m2 = re.match(r"(?s)^\\begin\{aligned\}(.*?)\\end\{aligned\}$", inner.strip())
+    if m2:
+        inner = m2.group(1).strip()
+    return inner.strip()
+
+
+def _merge_math_blocks_with_tag(math_blocks: List[str], tag_num: str) -> str:
+    inners: List[str] = []
+    for blk in math_blocks:
+        inner = _extract_display_math_inner(blk)
+        inner = re.sub(r"\\\\\s*$", "", inner).strip()
+        if inner:
+            inners.append(inner)
+    if not inners:
+        return sanitize_display_math_block(math_blocks[-1]) if math_blocks else ""
+    if len(inners) == 1:
+        body = inners[0]
+        wrapped = (
+            "\\begin{aligned}\n" + body + "\n\\end{aligned}"
+            if _needs_aligned_wrapper(body)
+            else body
+        )
+        return "\\[\n" + wrapped.strip("\n") + "\n" + rf"\tag{{{tag_num}}}" + "\n\\]"
+    body = " \\\\\n".join(inners)
+    return (
+        "\\[\n\\begin{aligned}\n"
+        + body
+        + "\n\\end{aligned}\n"
+        + rf"\tag{{{tag_num}}}"
+        + "\n\\]"
+    )
+
+
+def attach_standalone_equation_numbers(markdown: str) -> str:
+    """
+    Convert standalone equation-number lines like '(1.4)' into \\tag{1.4} attached
+    to the immediately preceding display math block(s).
+    """
+    segs = split_markdown_by_display_math(markdown)
+    out: List[Tuple[str, str]] = []
+
+    for kind, seg in segs:
+        if kind != "text":
+            out.append((kind, seg))
+            continue
+
+        for line in (seg or "").splitlines(True):
+            m = _STANDALONE_EQNUM_LINE_RE.match(line.strip())
+            if not m:
+                out.append(("text", line))
+                continue
+
+            tag_num = m.group(1).strip()
+            # Remove trailing blank texts
+            while out and out[-1][0] == "text" and out[-1][1].strip() == "":
+                out.pop()
+
+            # Collect preceding consecutive math blocks
+            collected: List[str] = []
+            while out and out[-1][0] == "math":
+                collected.insert(0, out.pop()[1])
+                while out and out[-1][0] == "text" and out[-1][1].strip() == "":
+                    out.pop()
+
+            if not collected:
+                out.append(("text", line))
+                continue
+
+            if any(
+                rf"\tag{{{tag_num}}}" in blk or rf"\tag*{{{tag_num}}}" in blk
+                for blk in collected
+            ):
+                for blk in collected:
+                    out.append(("math", blk))
+                continue
+
+            merged = _merge_math_blocks_with_tag(collected, tag_num)
+            if merged:
+                out.append(("math", merged))
+
+    return "".join(seg for _, seg in out)
+
+
+# =========================
+# Heading injection (structure anchoring)
+# =========================
+
+HEADING_START = "<!-- HEADING_START -->"
+HEADING_END = "<!-- HEADING_END -->"
+
+MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+
+# Paper section numbers: "1", "1.1", "1.1.1" (no trailing dot) followed by a title.
+# Unlike the book version we also match single-digit top-level: "1 Introduction".
+NUMSEC_LINE_RE = re.compile(r"^\s*(\d+(?:\.\d+)*)\s+(.+?)\s*$")
+
+# All-caps single-word headings common in papers: ABSTRACT, REFERENCES, ACKNOWLEDGEMENTS
+_ALLCAPS_HEADING_RE = re.compile(
+    r"^\s*(ABSTRACT|REFERENCES?|ACKNOWLEDGEMENTS?|APPENDIX|NOTATION|CONCLUSION|INTRODUCTION)\s*$",
+    re.IGNORECASE,
+)
+
+
+def inject_heading_sentinels(full_md: str) -> str:
+    """
+    Scan merged Markdown and wrap headings with strong sentinels.
+
+    Supported heading forms for optimization papers:
+      - Markdown headings: #, ##, ...
+      - Numeric section headings: "1", "1.1", "1.1.1" followed by a title on the same line
+      - All-caps single-keyword headings: ABSTRACT, REFERENCES, etc.
+    """
+    lines = (full_md or "").splitlines()
+    out: List[str] = []
+
+    i = 0
+    while i < len(lines):
+        ln = lines[i].rstrip("\n")
+        stripped = ln.strip()
+
+        # (A) Markdown headings: ## Introduction
+        hm = MD_HEADING_RE.match(stripped)
+        if hm:
+            out.append(HEADING_START)
+            out.append(stripped)
+            out.append(HEADING_END)
+            i += 1
+            continue
+
+        # (B) Numeric section lines: "1.1 Related Work" or "1 Introduction"
+        nm = NUMSEC_LINE_RE.match(stripped)
+        if nm:
+            out.append(HEADING_START)
+            out.append(stripped)
+            out.append(HEADING_END)
+            i += 1
+            continue
+
+        # (C) All-caps keyword headings: ABSTRACT, REFERENCES ...
+        cm = _ALLCAPS_HEADING_RE.match(stripped)
+        if cm:
+            out.append(HEADING_START)
+            out.append(stripped)
+            out.append(HEADING_END)
+            i += 1
+            continue
+
+        out.append(ln)
+        i += 1
+
+    return "\n".join(out).strip() + "\n"
+
+
+# =========================
+# Greedy chunking (logical chunking)
+# =========================
+
+# Theorem-like environments in optimization papers (includes Remark, Assumption, Conjecture)
+_STMT_START_RE = re.compile(
+    r"^\s*(?:[*_`> ]*)"
+    r"(Theorem|Lemma|Proposition|Corollary|Definition|Remark|Assumption|Conjecture)s?\s+"
+    r"([0-9]+(?:\.[0-9]+)*)"
+    r"\s*\.?\s*(?:[*_` ]*)"
+    r"(.*)$",
+    re.IGNORECASE,
+)
+
+_PROOF_START_RE = re.compile(
+    r"^\s*(?:[*_`> ]*)Proof\s*[:.]?\s*(?:[*_` ]*)"
+    r"(.*)$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_stmt_line(
+    line: str,
+) -> Tuple[Optional[str], Optional[str], List[str]]:
+    m = _STMT_START_RE.match(line.strip())
+    if not m:
+        return None, None, []
+    kind = m.group(1).title()
+    num = m.group(2)
+    tail = (m.group(3) or "").strip()
+
+    env_map = {
+        "Theorem": "thm",
+        "Lemma": "lem",
+        "Proposition": "prop",
+        "Corollary": "cor",
+        "Definition": "defn",
+        "Remark": "rmk",
+        "Assumption": "asm",
+        "Conjecture": "conj",
+    }
+    env = env_map.get(kind, "thm")
+
+    stmt_id = f"{kind} {num}"
+    first = f"{stmt_id}."
+    lines = [first]
+    if tail:
+        tail = tail.lstrip(":-\u2013\u2014. ").rstrip()
+        if tail:
+            lines.append(tail)
+    return env, stmt_id, lines
+
+
+def _normalize_proof_line(line: str) -> Tuple[bool, List[str]]:
+    m = _PROOF_START_RE.match(line.strip())
+    if not m:
+        return False, []
+    tail = (m.group(1) or "").strip()
+    lines = ["Proof."]
+    if tail:
+        tail = tail.lstrip(":-\u2013\u2014. ").rstrip()
+        if tail:
+            lines.append(tail)
+    return True, lines
+
+
+@dataclass
+class Block:
+    kind: str           # "heading" | "stmt" | "proof" | "para"
+    env: Optional[str]  # for stmt: thm/lem/prop/cor/defn/rmk/asm/conj; for proof: "proof"
+    md: str             # markdown payload
+
+
+def greedy_chunk_markdown(anchored_md: str) -> List[Block]:
+    """
+    Streaming greedy scan over sentinel-annotated Markdown.
+
+    Priority:
+      1) Heading sentinel blocks: forced break, emitted as heading Block.
+      2) Theorem-like env starts (stmt): forced break.
+      3) Proof starts: forced break; proof blocks are greedy (extend to next heading/env-start).
+      4) Everything else accumulates into 'para' blocks.
+    """
+    lines = (anchored_md or "").splitlines()
+    blocks: List[Block] = []
+
+    cur_kind: Optional[str] = None
+    cur_env: Optional[str] = None
+    cur_stmt_id: Optional[str] = None
+    cur_lines: List[str] = []
+
+    def flush() -> None:
+        nonlocal cur_kind, cur_env, cur_stmt_id, cur_lines
+        if cur_kind is None:
+            return
+        text = "\n".join(cur_lines).strip()
+        if text:
+            blocks.append(Block(kind=cur_kind, env=cur_env, md=text))
+        cur_kind = None
+        cur_env = None
+        cur_stmt_id = None
+        cur_lines = []
+
+    i = 0
+    while i < len(lines):
+        ln = lines[i]
+
+        # (A) Heading block
+        if ln.strip() == HEADING_START:
+            flush()
+            i += 1
+            heading_lines: List[str] = []
+            while i < len(lines) and lines[i].strip() != HEADING_END:
+                heading_lines.append(lines[i])
+                i += 1
+            if i < len(lines) and lines[i].strip() == HEADING_END:
+                i += 1
+            heading_text = "\n".join(heading_lines).strip()
+            if heading_text:
+                blocks.append(Block(kind="heading", env=None, md=heading_text))
+            continue
+
+        # (B) Theorem-like stmt start
+        env, stmt_id, norm_stmt_lines = _normalize_stmt_line(ln)
+        if env is not None:
+            if cur_kind == "stmt" and cur_stmt_id and stmt_id == cur_stmt_id:
+                # Repeated title across pages -> treat as continuation
+                if len(norm_stmt_lines) > 1:
+                    cur_lines.extend(norm_stmt_lines[1:])
+                i += 1
+                continue
+            flush()
+            cur_kind = "stmt"
+            cur_env = env
+            cur_stmt_id = stmt_id
+            cur_lines = list(norm_stmt_lines)
+            i += 1
+            continue
+
+        # (C) Proof start
+        is_proof, norm_proof_lines = _normalize_proof_line(ln)
+        if is_proof:
+            if cur_kind == "proof":
+                # Repeated 'Proof.' -> continuation
+                if len(norm_proof_lines) > 1:
+                    cur_lines.extend(norm_proof_lines[1:])
+                i += 1
+                continue
+            flush()
+            cur_kind = "proof"
+            cur_env = "proof"
+            cur_stmt_id = None
+            cur_lines = list(norm_proof_lines)
+            i += 1
+            continue
+
+        # (D) Normal line
+        if cur_kind is None:
+            cur_kind = "para"
+            cur_env = None
+            cur_stmt_id = None
+            cur_lines = [ln]
+        else:
+            cur_lines.append(ln)
+        i += 1
+
+    flush()
+    return blocks
+
+
+# =========================
+# Heading -> LaTeX (deterministic)
+# =========================
+
+def heading_block_to_latex(heading_md: str) -> str:
+    """
+    Convert a heading block (content between HEADING_START/END) to a LaTeX heading command.
+
+    Supported forms:
+      - Numeric: "1 Introduction"  -> \\section{...}
+                 "1.1 Background"  -> \\subsection{...}
+                 "1.1.1 Details"   -> \\subsubsection{...}
+      - Markdown: # / ## / ### etc.
+      - All-caps keywords: ABSTRACT -> \\section*{Abstract}, REFERENCES -> \\section*{References}, etc.
+    """
+    lines = [ln.strip() for ln in (heading_md or "").splitlines() if ln.strip()]
+    if not lines:
+        return ""
+
+    first = lines[0]
+
+    # All-caps keyword headings
+    cm = _ALLCAPS_HEADING_RE.match(first)
+    if cm:
+        title = first.title()  # "ABSTRACT" -> "Abstract"
+        return rf"\section*{{{title}}}"
+
+    # Markdown heading (# / ## / ...)
+    hm = MD_HEADING_RE.match(first)
+    if hm:
+        level = len(hm.group(1))
+        text = hm.group(2).strip()
+        cmds = ["section", "subsection", "subsubsection", "paragraph", "subparagraph", "subparagraph"]
+        cmd = cmds[min(level - 1, len(cmds) - 1)]
+        return rf"\{cmd}{{{text}}}"
+
+    # Numeric section: "1 Introduction" or "1.1 Background"
+    nm = NUMSEC_LINE_RE.match(first)
+    if nm:
+        num = nm.group(1)
+        title = nm.group(2).strip()
+        depth = num.count(".")
+        if depth == 0:
+            cmd = "section"
+        elif depth == 1:
+            cmd = "subsection"
+        elif depth == 2:
+            cmd = "subsubsection"
+        else:
+            cmd = "paragraph"
+        return rf"\{cmd}{{{num} {title}}}"
+
+    # Fallback: treat as \section
+    return rf"\section{{{first}}}"
+
+
+# =========================
+# Block size limiter
+# =========================
+
+def split_large_para_blocks(blocks: List[Block], max_chars: int = 3000) -> List[Block]:
+    """
+    Prevent LLM truncation by splitting oversized 'para' blocks at blank-line boundaries.
+    Non-para blocks (stmt/proof/heading) are never split.
+    """
+    max_chars = max(500, int(max_chars or 3000))
+    out: List[Block] = []
+    for blk in blocks:
+        if blk.kind != "para" or len(blk.md) <= max_chars:
+            out.append(blk)
+            continue
+        parts = re.split(r"\n\s*\n+", blk.md.strip())
+        buf: List[str] = []
+        cur = 0
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            add_len = len(part) + (2 if buf else 0)
+            if buf and (cur + add_len) > max_chars:
+                out.append(Block(kind="para", env=None, md="\n\n".join(buf).strip() + "\n"))
+                buf = [part]
+                cur = len(part)
+            else:
+                cur += add_len
+                buf.append(part)
+        if buf:
+            out.append(Block(kind="para", env=None, md="\n\n".join(buf).strip() + "\n"))
+    return out
+
+
+# =========================
 # Main (entry layer)
 # =========================
 
@@ -637,11 +1186,38 @@ def main() -> None:
         f"{len(full_md)} chars, workers={workers}"
     )
 
-    # TODO: structural layer (heading injection, greedy chunking) — next step
+    # ---- Structural layer ----
+
+    # (6) Attach standalone equation numbers like "(1.4)" back to preceding display math
+    full_md = attach_standalone_equation_numbers(full_md)
+
+    # (7) Inject heading sentinels to anchor structure
+    anchored_md = inject_heading_sentinels(full_md)
+
+    # (8) Greedy semantic chunking
+    blocks = greedy_chunk_markdown(anchored_md)
+
+    # (9) Split oversized para blocks to prevent LLM truncation
+    max_chars = int(get_setting(settings, "MDTOTEX_MAX_CHARS", 3000))
+    blocks = split_large_para_blocks(blocks, max_chars=max_chars)
+
+    if not blocks:
+        blocks = [Block(kind="para", env=None, md=full_md)]
+
+    heading_count = sum(1 for b in blocks if b.kind == "heading")
+    stmt_count    = sum(1 for b in blocks if b.kind == "stmt")
+    proof_count   = sum(1 for b in blocks if b.kind == "proof")
+    para_count    = sum(1 for b in blocks if b.kind == "para")
+    print(
+        f"[structure] blocks={len(blocks)} "
+        f"(heading={heading_count}, stmt={stmt_count}, "
+        f"proof={proof_count}, para={para_count})"
+    )
+
     # TODO: conversion layer (LLM block conversion)               — next step
     # TODO: post-fix / assembly layer                              — next step
 
-    print(f"[stub] preprocessing complete. full_md length = {len(full_md)}")
+    print(f"[stub] structural layer complete. blocks={len(blocks)}")
 
 
 if __name__ == "__main__":
