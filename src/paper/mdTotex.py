@@ -1224,7 +1224,8 @@ def normalize_unicode_symbols(latex: str) -> str:
 
 def normalize_and_separator(latex: str) -> str:
     """Replace LaTeX author separator \and with a comma."""
-    return re.sub(r"\s*\\and\s*", ", ", latex or "")
+    # Match one or more backslashes before 'and' to cover both '\and' and '\\and'.
+    return re.sub(r"\s*\\+and\s*", ", ", latex or "")
 
 
 def normalize_display_math(latex: str) -> str:

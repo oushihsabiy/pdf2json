@@ -177,6 +177,7 @@
 - 修改 [src/paper/mdTotex.py](src/paper/mdTotex.py)：
 	- 新增 `normalize_and_separator`，对片段执行 `\\and -> ,` 归一化。
 	- 在 `heal_latex_fragment` 流程中接入该归一化步骤，确保最终输出不含 `\\and`。
+	- 加固正则匹配，覆盖 `\\and` 与 `\\\\and` 两种输出变体。
 
 ### 影响范围
 - 更新文件 [src/paper/mdTotex.py](src/paper/mdTotex.py)
