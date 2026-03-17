@@ -17,3 +17,18 @@
 ### 影响范围
 - 新增文件 [src/paper/mdTotex.py](src/paper/mdTotex.py)。
 - 更新记录文件 [COPILOT_CHANGES.md](COPILOT_CHANGES.md)。
+
+## 2026-03-17
+
+### 变更任务
+- 调整简化流程第 2 步（stmt 识别）：仅当候选声明行被 Markdown 粗体包裹（`**...**`）时，才判定为 `stmt`。
+
+### 具体修改内容
+- 修改 [src/paper/mdTotex.py](src/paper/mdTotex.py) 的 `_normalize_stmt_line`：
+	- 先匹配整行为 `**...**`（`^\*\*(.+?)\*\*$`）。
+	- 若不满足粗体包裹，直接返回非 stmt。
+	- 仅对粗体内部文本再执行 `_STMT_START_RE` 的 Theorem/Lemma/Proposition/Corollary/Definition/Remark/Assumption/Conjecture 识别。
+
+### 影响范围
+- 更新文件 [src/paper/mdTotex.py](src/paper/mdTotex.py)。
+- 更新记录文件 [COPILOT_CHANGES.md](COPILOT_CHANGES.md)。

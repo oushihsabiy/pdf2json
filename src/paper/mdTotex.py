@@ -849,7 +849,14 @@ _PROOF_START_RE = re.compile(
 def _normalize_stmt_line(
     line: str,
 ) -> Tuple[Optional[str], Optional[str], List[str]]:
-    m = _STMT_START_RE.match(line.strip())
+    raw = (line or "").strip()
+    m_bold = re.match(r"^\*\*(.+?)\*\*$", raw)
+    if not m_bold:
+        return None, None, []
+
+    # New rule: only bold-wrapped statement headers are treated as stmt starts.
+    stmt_text = m_bold.group(1).strip()
+    m = _STMT_START_RE.match(stmt_text)
     if not m:
         return None, None, []
     kind = m.group(1).title()
