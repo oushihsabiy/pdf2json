@@ -1222,6 +1222,11 @@ def normalize_unicode_symbols(latex: str) -> str:
     return latex
 
 
+def normalize_and_separator(latex: str) -> str:
+    """Replace LaTeX author separator \and with a comma."""
+    return re.sub(r"\s*\\and\s*", ", ", latex or "")
+
+
 def normalize_display_math(latex: str) -> str:
     """Normalize display math delimiters: $$...$$ -> \\[...\\]."""
     def repl(m: re.Match) -> str:
@@ -1337,6 +1342,7 @@ def heal_latex_fragment(latex: str) -> str:
     latex = strip_code_fences(latex)
     latex = strip_outer_document(latex)
     latex = normalize_unicode_symbols(latex)
+    latex = normalize_and_separator(latex)
     latex = sanitize_latex_math(latex)
     return latex.strip()
 

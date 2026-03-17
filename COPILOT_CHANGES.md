@@ -167,3 +167,17 @@
 ### 影响范围
 - 更新文件 [src/paper/mdTotex.py](src/paper/mdTotex.py)
 - 更新记录文件 [COPILOT_CHANGES.md](COPILOT_CHANGES.md)
+
+## 2026-03-17（\\and 分隔符替换）
+
+### 变更任务
+- 按需求将 LaTeX 输出中的 `\\and` 分隔符替换为 `,`。
+
+### 具体修改内容
+- 修改 [src/paper/mdTotex.py](src/paper/mdTotex.py)：
+	- 新增 `normalize_and_separator`，对片段执行 `\\and -> ,` 归一化。
+	- 在 `heal_latex_fragment` 流程中接入该归一化步骤，确保最终输出不含 `\\and`。
+
+### 影响范围
+- 更新文件 [src/paper/mdTotex.py](src/paper/mdTotex.py)
+- 更新记录文件 [COPILOT_CHANGES.md](COPILOT_CHANGES.md)
