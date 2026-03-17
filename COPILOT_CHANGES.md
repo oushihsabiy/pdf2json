@@ -32,3 +32,8 @@
 ### 影响范围
 - 更新文件 [src/paper/mdTotex.py](src/paper/mdTotex.py)。
 - 更新记录文件 [COPILOT_CHANGES.md](COPILOT_CHANGES.md)。
+
+### 补充：display-math 抽取规则收紧
+- 在 `replace_display_math_with_placeholders` 增加 `$$...$$` 抽取前置校验：
+	- 仅当 `$$` 与内容“紧贴”时才抽取为 math block。
+	- 若 `$$` 后立刻空行或 `$$` 前存在空行（即边界不紧贴），保持原文，不作为 display-math 占位符抽取。

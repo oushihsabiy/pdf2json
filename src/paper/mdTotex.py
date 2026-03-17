@@ -558,6 +558,31 @@ _PLACEHOLDER_RE = re.compile(r"\bZZZ_MATHBLOCK_\d{4}_ZZZ\b")
 _TAG_TOKEN_RE = re.compile(r"\\tag\*?\{[^}]*\}")
 
 
+def _is_tight_dollar_block(block: str) -> bool:
+    """
+    Accept $$...$$ only when content is adjacent to delimiters.
+    Reject cases like:
+      $$
+
+      ...
+      $$
+    or when a blank line exists right before closing $$.
+    """
+    s = (block or "")
+    if not re.match(r"(?s)^\$\$.*\$\$$", s.strip()):
+        return True
+
+    # opening $$ followed by a blank line
+    if re.match(r"(?s)^\$\$\s*\n\s*\n", s):
+        return False
+
+    # blank line right before closing $$
+    if re.search(r"(?s)\n\s*\n\s*\$\$\s*$", s):
+        return False
+
+    return True
+
+
 def _needs_aligned_wrapper(body: str) -> bool:
     s = body or ""
     if re.search(
@@ -614,10 +639,17 @@ def replace_display_math_with_placeholders(
 
     def _repl(m: re.Match) -> str:
         nonlocal idx
+        raw = m.group(0)
+
+        # New rule: $$ display-math must be tight to delimiters.
+        # If not, keep original text and do not extract as math block.
+        if raw.lstrip().startswith("$$") and not _is_tight_dollar_block(raw):
+            return raw
+
         idx += 1
         ph = f"{PLACEHOLDER_PREFIX}{idx:04d}{PLACEHOLDER_SUFFIX}"
         seq.append(ph)
-        mapping[ph] = sanitize_display_math_block(m.group(0))
+        mapping[ph] = sanitize_display_math_block(raw)
         return "\n" + ph + "\n"
 
     md2 = _DISPLAY_MATH_BLOCK_RE.sub(_repl, markdown or "")
