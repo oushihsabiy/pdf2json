@@ -1328,8 +1328,6 @@ def _has_prompt_leak(s: str) -> bool:
         "do not invent",
         "hard rules",
         "environment rules",
-        "<<<proof>>>",
-        "<<<rest>>>",
     ]
     s_lower = (s or "").lower()
     return any(tell in s_lower for tell in tell_tale)

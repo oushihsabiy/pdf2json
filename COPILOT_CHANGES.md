@@ -81,3 +81,16 @@
 - 更新文件 [src/paper/mdTotex.py](src/paper/mdTotex.py) 
 - 更新文件 [src/book/mdTotex.py](src/book/mdTotex.py)
 - 更新记录文件 [COPILOT_CHANGES.md](COPILOT_CHANGES.md)
+
+## 2026-03-17（泄漏规则调整）
+
+### 变更任务
+- 删除将 `<<<PROOF>>>` / `<<<REST>>>` 视为提示词泄漏特征的规则。
+
+### 具体修改内容
+- 修改 [src/paper/mdTotex.py](src/paper/mdTotex.py) 的 `_has_prompt_leak`：
+	- 从 `tell_tale` 列表中移除 `<<<proof>>>` 和 `<<<rest>>>`。
+
+### 影响范围
+- 更新文件 [src/paper/mdTotex.py](src/paper/mdTotex.py)
+- 更新记录文件 [COPILOT_CHANGES.md](COPILOT_CHANGES.md)
