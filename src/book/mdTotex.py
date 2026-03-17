@@ -2766,9 +2766,11 @@ def split_large_para_blocks(blocks: List[Block], max_chars: int = 8000) -> List[
 # =========================
 
 def build_tex_document(body_chunks: List[str]) -> str:
-    preamble = r"""\documentclass[11pt]{book}
+    preamble = r"""\documentclass[11pt]{article}
 \usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
 \usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
 \usepackage{graphicx}
 \usepackage{geometry}
 \geometry{margin=1in}
@@ -2777,14 +2779,13 @@ def build_tex_document(body_chunks: List[str]) -> str:
 \providecommand{\minimize}{\min}
 \providecommand{\maximize}{\max}
 
-% Fixed theorem-like env names for downstream parsing
-\newtheorem{thm}{Theorem}[section]
-\newtheorem{lem}[thm]{Lemma}
-\newtheorem{prop}[thm]{Proposition}
-\newtheorem{cor}[thm]{Corollary}
+% Theorem-like env names for downstream parsing
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
 \theoremstyle{definition}
-\newtheorem{defn}[thm]{Definition}
-\newtheorem*{example}{Example}
+\newtheorem{definition}[theorem]{Definition}
 
 \begin{document}
 """

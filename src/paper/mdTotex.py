@@ -1679,6 +1679,7 @@ def build_tex_document(body_chunks: List[str]) -> str:
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
 \usepackage{graphicx}
 \usepackage{geometry}
 \geometry{margin=1in}

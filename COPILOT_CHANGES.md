@@ -59,3 +59,25 @@
 	- 简单的配对 `$$` 块可正确抽取。
 	- 包含多行矩阵、`\begin{bmatrix}`、`\tag{2}` 等结构的复杂 `$$` 块现在作为整体保留。
 	- 混合 `\[...\]`、`\begin{...}\end{...}` 和 `$$...$$` 块的文档正确处理。
+
+## 2026-03-17（续续）
+
+### 变更任务
+- 添加 LaTeX 包以支持 `\begin{equation}...\end{equation}` 环境。
+
+### 具体修改内容
+- 在 [src/paper/mdTotex.py](src/paper/mdTotex.py) 的导言区添加 `\usepackage{mathtools}`
+- 在 [src/book/mdTotex.py](src/book/mdTotex.py) 的导言区添加 `\usepackage{mathtools}`
+
+### 说明
+- `amsmath` 包（已有）原生支持 `\begin{equation}...\end{equation}` 环境
+- `mathtools` 包是 `amsmath` 的扩展，提供额外功能：
+	- 增强的分隔符处理（`\DeclarePairedDelimiter`, `\lparen`, `\rparen` 等）
+	- 更灵活的对齐和标签处理
+	- 支持非对称的 `\bigg` 和其他大小修饰符
+	- 改进的 equation numbering 和引用
+
+### 影响范围
+- 更新文件 [src/paper/mdTotex.py](src/paper/mdTotex.py) 
+- 更新文件 [src/book/mdTotex.py](src/book/mdTotex.py)
+- 更新记录文件 [COPILOT_CHANGES.md](COPILOT_CHANGES.md)
