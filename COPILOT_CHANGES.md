@@ -130,23 +130,40 @@
 - 更新文件 [src/paper/mdTotex.py](src/paper/mdTotex.py)
 - 更新记录文件 [COPILOT_CHANGES.md](COPILOT_CHANGES.md)
 
-## 2026-03-17（新增 proof 提前结束调试脚本）
+## 2026-03-17（proof 提前闭合修复）
 
 ### 变更任务
-- 新增一个可复现调试脚本，用于定位 Theorem 4 proof 在 mdTotex 流程中为何提前出现 `\\end{proof}`。
+- 修复 proof 块在少数回退路径下出现 `\end{proof}` 提前闭合，导致后续矩阵内容掉出 proof 环境的问题。
 
 ### 具体修改内容
-- 新建 [work/debug/test_proof_early_end.py](work/debug/test_proof_early_end.py)：
-	- 按标记提取目标 proof 块（默认 `*Proof of Theorem 4*` 到 `## 6 Breakdown of regularity`）。
-	- 统计并落盘中间产物：原始块、占位符替换后块。
-	- 挂钩 `src.paper.mdTotex._chat_complete_text`，跟踪每次 LLM 调用：
-		- prompt/response 字符数
-		- placeholder 序列是否一致
-		- response 中 `\\begin{proof}`/`\\end{proof}` 计数
-	- 自动判断是否触发递归 fallback（调用次数 > 1 且 placeholder 失配）。
-	- 输出 `trace_report.txt`，并定位最终 LaTeX 中首个 `\\end{proof}` 行号。
-	- 支持 `--dry-run` 与 `--max-tokens` 覆盖，方便快速对比 2048/4096/8192 的行为差异。
+- 修改 [src/paper/mdTotex.py](src/paper/mdTotex.py)：
+	- 新增 `normalize_proof_environment`，在 proof 分支输出前统一归一化 proof 外层包裹。
+	- 在 `convert_blocks_to_latex` 的 `blk.kind == "proof"` 分支中，先执行 `normalize_proof_environment`，再执行 `insert_block_sentinels`。
+
+### 根因说明
+- 当 `markdown_to_latex` 触发“占位符顺序不一致”的回退逻辑时，会按数学块分段重转；分段结果可能在中间提前出现 `\end{proof}`，从而造成 proof 提前结束。
 
 ### 影响范围
-- 新增文件 [work/debug/test_proof_early_end.py](work/debug/test_proof_early_end.py)
+- 更新文件 [src/paper/mdTotex.py](src/paper/mdTotex.py)
+- 更新记录文件 [COPILOT_CHANGES.md](COPILOT_CHANGES.md)
+
+## 2026-03-17（heading 误判导致 proof 截断修复）
+
+### 变更任务
+- 修复矩阵/显示数学内容被误识别为标题，触发 heading sentinel 后把 proof 块提前截断的问题。
+
+### 具体修改内容
+- 修改 [src/paper/mdTotex.py](src/paper/mdTotex.py) 的 `inject_heading_sentinels`：
+	- 新增数学上下文状态跟踪（`$$...$$`、`\[...\]`、以及常见数学环境 `\begin{...}\end{...}`）。
+	- 当行处于数学上下文，或行内包含数学边界标记时，跳过标题识别逻辑。
+	- 仅在非数学上下文行上执行 `MD_HEADING_RE` / `NUMSEC_LINE_RE` / `_ALLCAPS_HEADING_RE` 标题注入。
+
+### 根因说明
+- 旧逻辑会把形如 `0 & ...` 的矩阵行误命中 `NUMSEC_LINE_RE`（数字开头行），插入 `HEADING_START/END`，`greedy_chunk_markdown` 遇到该 sentinel 会 `flush()`，从而中断 proof。
+
+### 验证结论
+- 函数级验证显示：`Proof of Theorem 4` 仍为单一 proof block，且包含矩阵首行 `0 & \sqrt{2}e^{i\theta}` 与 `\end{bmatrix}`，不再在该处提前终止。
+
+### 影响范围
+- 更新文件 [src/paper/mdTotex.py](src/paper/mdTotex.py)
 - 更新记录文件 [COPILOT_CHANGES.md](COPILOT_CHANGES.md)

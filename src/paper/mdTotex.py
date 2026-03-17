@@ -812,6 +812,22 @@ _ALLCAPS_HEADING_RE = re.compile(
     re.IGNORECASE,
 )
 
+_DOLLAR_DISPLAY_RE = re.compile(r"(?<!\\)\$\$")
+_BRACKET_OPEN_RE = re.compile(r"(?<!\\)\\\\\[")
+_BRACKET_CLOSE_RE = re.compile(r"(?<!\\)\\\\\]")
+_MATH_ENV_BEGIN_RE = re.compile(
+    r"\\begin\{"
+    r"(equation\*?|align\*?|gather\*?|multline\*?|flalign\*?|"
+    r"aligned|alignedat|split|array|cases|matrix|pmatrix|bmatrix|vmatrix|Vmatrix|smallmatrix)"
+    r"\}"
+)
+_MATH_ENV_END_RE = re.compile(
+    r"\\end\{"
+    r"(equation\*?|align\*?|gather\*?|multline\*?|flalign\*?|"
+    r"aligned|alignedat|split|array|cases|matrix|pmatrix|bmatrix|vmatrix|Vmatrix|smallmatrix)"
+    r"\}"
+)
+
 
 def inject_heading_sentinels(full_md: str) -> str:
     """
@@ -825,10 +841,47 @@ def inject_heading_sentinels(full_md: str) -> str:
     lines = (full_md or "").splitlines()
     out: List[str] = []
 
+    in_dollar_display = False
+    bracket_depth = 0
+    math_env_depth = 0
+
+    def _has_math_markers(line: str) -> bool:
+        return bool(
+            _DOLLAR_DISPLAY_RE.search(line)
+            or _BRACKET_OPEN_RE.search(line)
+            or _BRACKET_CLOSE_RE.search(line)
+            or _MATH_ENV_BEGIN_RE.search(line)
+            or _MATH_ENV_END_RE.search(line)
+        )
+
+    def _update_math_state(line: str) -> None:
+        nonlocal in_dollar_display, bracket_depth, math_env_depth
+
+        # $$ toggles display-math mode when encountered odd number of times on a line.
+        if len(_DOLLAR_DISPLAY_RE.findall(line)) % 2 == 1:
+            in_dollar_display = not in_dollar_display
+
+        bracket_depth += len(_BRACKET_OPEN_RE.findall(line))
+        bracket_depth -= len(_BRACKET_CLOSE_RE.findall(line))
+        if bracket_depth < 0:
+            bracket_depth = 0
+
+        math_env_depth += len(_MATH_ENV_BEGIN_RE.findall(line))
+        math_env_depth -= len(_MATH_ENV_END_RE.findall(line))
+        if math_env_depth < 0:
+            math_env_depth = 0
+
     i = 0
     while i < len(lines):
         ln = lines[i].rstrip("\n")
         stripped = ln.strip()
+
+        in_math_context = in_dollar_display or bracket_depth > 0 or math_env_depth > 0
+        if in_math_context or _has_math_markers(ln):
+            out.append(ln)
+            _update_math_state(ln)
+            i += 1
+            continue
 
         # (A) Markdown headings: ## Introduction
         hm = MD_HEADING_RE.match(stripped)
@@ -858,6 +911,7 @@ def inject_heading_sentinels(full_md: str) -> str:
             continue
 
         out.append(ln)
+        _update_math_state(ln)
         i += 1
 
     return "\n".join(out).strip() + "\n"
@@ -1507,6 +1561,19 @@ def insert_block_sentinels(latex: str) -> str:
     return "".join(out).strip()
 
 
+def normalize_proof_environment(latex: str) -> str:
+    """Ensure one and only one outer proof environment for proof blocks."""
+    s = (latex or "").strip()
+    if not s:
+        return "\\begin{proof}\n\\end{proof}"
+
+    # Fallback conversion can emit premature or repeated proof wrappers.
+    s = re.sub(r"\\begin\{proof\}\s*", "", s)
+    s = re.sub(r"\s*\\end\{proof\}", "", s)
+    body = s.strip()
+    return "\\begin{proof}\n" + body + "\n\\end{proof}"
+
+
 def convert_blocks_to_latex(
     blocks: List[Block],
     client: OpenAI,
@@ -1531,6 +1598,7 @@ def convert_blocks_to_latex(
 
             if blk.kind == "proof":
                 latex = markdown_to_latex(client, model, blk.md, max_tokens=max_tokens)
+                latex = normalize_proof_environment(latex)
                 latex = insert_block_sentinels(latex)
                 return idx, ([latex] if latex else [])
 
