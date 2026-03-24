@@ -1,0 +1,12 @@
+[
+  {
+    "index": 1,
+    "source_idx": "test_001",
+    "source": "test",
+    "题目类型": "凸优化",
+    "预估难度": "easy",
+    "problem": "Let $f: \\mathbf{R}^n \\to \\mathbf{R}$ be convex. Prove that the set $S = \\{x \\mid f(x) \\le 0\\}$ is convex.",
+    "proof": "",
+    "direct_answer": ""
+  }
+]
