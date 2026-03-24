@@ -1,5 +1,6 @@
 # Project outputs
 output_json/
+output_lean/
 work/
 __pycache__/
 *.pyc
