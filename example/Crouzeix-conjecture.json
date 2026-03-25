@@ -1,0 +1,102 @@
+[
+  {
+    "index": 1,
+    "problem": "\\begin{definition}\n\\label{def:0.1}\nLet $\\mathcal{M}^N$ denote the space of $N \\times N$ complex matrices, let $\\mathcal{P}_M$ denote the space of polynomials with complex coefficients and degree $\\leq M$, and let $\\|\\cdot\\|$ denote the vector or matrix 2-norm. The field of values (or numerical range) of $A \\in \\mathcal{M}^N$ is\n\\[\n\\label{eq:0.u1}\nW(A)=\\{v^*Av\\ :\\ v \\in \\mathbb{C}^N,\\ \\|v\\|=1\\},\n\\]\nand\n\\[\n\\label{eq:0.u2}\n\\|p\\|_{W(A)}=\\max_{\\zeta\\in W(A)}|p(\\zeta)|=\\max_{\\|v\\|=1}|p(v^*Av)|.\n\\]\n\\end{definition}",
+    "proof": "",
+    "direct_answer": "",
+    "题目类型": "其他",
+    "预估难度": "",
+    "source": "OptimizationPaper",
+    "source_idx": ""
+  },
+  {
+    "index": 2,
+    "problem": "\\begin{proposition}\n\\label{prop:0.1}\n\\textbf{Proposition 1.}\n\nLet $\\nu:E\\to \\mathbb{R}$ be locally Lipschitz, directionally differentiable and regular on an open set $X\\in E$ and let $\\delta:E\\to \\mathbb{R}$ be smooth on $X$ with gradient $\\nabla\\delta$. Define the quotient $h$ by $x\\mapsto \\nu(x)/\\delta(x)$, assuming $\\delta(x)\\neq 0$ for $x\\in X$. Then $h$ is regular on $X$ with subdifferential\n\n\\[\n\\label{eq:0.u3}\n\\partial h(x)=\\frac{\\delta(x)\\partial \\nu(x)-\\nu(x)\\nabla \\delta(x)}{\\delta(x)^2}.\n\\]\n\\end{proposition}",
+    "proof": "",
+    "direct_answer": "",
+    "题目类型": "其他",
+    "预估难度": "",
+    "source": "OptimizationPaper",
+    "source_idx": ""
+  },
+  {
+    "index": 3,
+    "problem": "\\begin{proposition}\n\\label{prop:0.2}\n\\textbf{Proposition 2.} For $\\theta\\in [0,2\\pi)$, define the Hermitian matrix\n\\[\n\\label{eq:0.u4}\nH_\\theta=\\frac{1}{2}\\left(e^{i\\theta}A+e^{-i\\theta}A^*\\right).\n\\qquad (4)\n\\]\nA point $z$ is a boundary point of $W(A)$ if and only if $z=v^*Av$ where $v$ is a unit eigenvector of $H_\\theta$ corresponding to $\\lambda_{\\max}(H_\\theta)$, the largest eigenvalue of $H_\\theta$, for some $\\theta \\in [0, 2\\pi)$.\n\\end{proposition}",
+    "proof": "",
+    "direct_answer": "",
+    "题目类型": "证明题",
+    "预估难度": "",
+    "source": "OptimizationPaper",
+    "source_idx": ""
+  },
+  {
+    "index": 4,
+    "problem": "\\begin{definition}\n\\label{def:0.2}\nLet us identify $p \\in \\mathcal{P}_M$ with its coefficient vector $c=[c_0,c_1,\\ldots,c_M]^T \\in \\mathbb{C}^{M+1}$, with $c_j \\neq 0$ for at least one $j \\in \\{1,\\ldots,M\\}$, and define the function $q:\\mathbb{C}^{M+1}\\times \\mathbb{C}\\rightarrow \\mathbb{C}$ by\n\\[\n\\label{eq:0.u5}\nq(c,\\zeta)=\\sum_{j=0}^M c_j \\zeta^j.\n\\]\nDepending on the context, we will also interpret $q$ as a function mapping $\\mathbb{C}^{M+1}\\times \\mathcal{M}^N$ to $\\mathcal{M}^N$, defined by substituting $A \\in \\mathcal{M}^N$ for $\\zeta \\in \\mathbb{C}$ above.\n\\end{definition}",
+    "proof": "",
+    "direct_answer": "",
+    "题目类型": "其他",
+    "预估难度": "",
+    "source": "OptimizationPaper",
+    "source_idx": ""
+  },
+  {
+    "index": 5,
+    "problem": "\\begin{definition}\n\\label{def:0.3}\nWe write the Crouzeix ratio as\n\\[\n\\label{eq:0.u6}\nf(c,A)=\\frac{\\tau(c,A)}{\\beta(c,A)}\n\\]\nwhere\n\\[\n\\tau(c,A)=\\max\\{|q(c,z)|:z \\in W(A)\\},\n\\tag{5}\\label{eq:5}\n\\]\nand\n\\[\n\\beta(c,A)=\\|p(A)\\|=\\sigma_{\\max}(q(c,A)),\n\\tag{6}\\label{eq:6}\n\\]\nthe largest singular value of $\\sum_{j=0}^M c_jA^j$.\n\\end{definition}",
+    "proof": "",
+    "direct_answer": "",
+    "题目类型": "其他",
+    "预估难度": "",
+    "source": "OptimizationPaper",
+    "source_idx": ""
+  },
+  {
+    "index": 6,
+    "problem": "\\begin{definition}\n\\label{def:0.4}\nWe can rewrite $\\tau$ as\n\\[\n\\tau(c,A)=\\max\\{\\phi(c,A,\\omega,v):|\\omega|=1,\\ \\|v\\|=1\\},\n\\tag{7}\\label{eq:7}\n\\]\nwhere the function $\\phi:\\mathbb{C}^{M+1}\\times\\mathcal{M}^N\\times\\mathbb{C}\\times\\mathbb{C}^N\\to\\mathbb{R}$ is defined by\n\\[\n\\label{eq:0.u7}\n\\phi(c,A,\\omega,v)=\\operatorname{Re}(\\omega^*q(c,v^*Av)).\n\\]\nLet $Z(c,A)$ denote the set of points $z\\in W(A)$ attaining the maximum \\eqref{eq:5} and let $\\Omega(c,A)$ denote the set of pairs $(\\omega,v)$ attaining the maximum in (7). Clearly\n\\[\n\\label{eq:0.u8}\n\\Omega(c,A)=\\{(\\omega,v):|\\omega|=1,\\ \\|v\\|=1,\\ z\\in Z(c,A),\\ v^*Av=z,\\ \\omega^*z=|q(c,z)|\\}.\n\\]\n\\end{definition}",
+    "proof": "",
+    "direct_answer": "",
+    "题目类型": "其他",
+    "预估难度": "",
+    "source": "OptimizationPaper",
+    "source_idx": ""
+  },
+  {
+    "index": 7,
+    "problem": "\\begin{theorem}\n\\label{thm:0.1}\n\\[\n\\partial f(c,A)=\\frac{\\beta(c,A)\\partial\\tau(c,A)-\\tau(c,A)\\nabla\\beta(c,A)}{\\beta(c,A)^2},\n\\tag{11}\\label{eq:11}\n\\]\nwhere $\\partial\\tau(c,A)$ and $\\nabla\\beta(c,A)$ are given by (9) and (10) respectively.\n\\end{theorem}",
+    "proof": "",
+    "direct_answer": "",
+    "题目类型": "其他",
+    "预估难度": "",
+    "source": "OptimizationPaper",
+    "source_idx": ""
+  },
+  {
+    "index": 8,
+    "problem": "\\begin{theorem}\n\\label{thm:0.2}\nLet $c$, $A$ be given by (12), (13). The subdifferential of the Crouzeix ratio at $(c,A)$ is\n\n\\[\n\\partial f(c,A)=\\operatorname{conv}_{\\theta\\in[0,2\\pi]}\\left\\{(y_\\theta,Y_\\theta)\\right\\}\n\\tag{14}\\label{eq:14}\n\\]\n\nwhere\n\n\\[\ny_\\theta=\\frac{1}{2}\\left[z^m,z^{m-1},\\ldots,z,0,z^{-1},z^{-2},\\ldots,z^{m-M}\\right]^T\n\\tag{15}\\label{eq:15}\n\\]\n\nand $Y_\\theta$ is the block diagonal matrix $\\operatorname{diag}(\\tilde{Y}_\\theta,0)$, where $\\tilde{Y}_\\theta$ is the $n\\times n$ matrix\n\n\\[\n\\tilde{Y}_\\theta=\\frac{1}{4}\\begin{bmatrix}\nz & 0 & \\sqrt{2}z^{-1} & \\sqrt{2}z^{-2} & \\cdots & \\sqrt{2}z^{3-n} & z^{2-n}\\\\\n\\sqrt{2}z^2 & 2z & 0 & 2z^{-1} & \\cdots & 2z^{4-n} & \\sqrt{2}z^{3-n}\\\\\n\\vdots & & & & & & \\vdots\\\\\n\\sqrt{2}z^{n-2} & 2z^{n-3} & 2z^{n-4} & 2z^{n-5} & \\cdots & 0 & \\sqrt{2}z\\\\\n\\sqrt{2}z^{n-1} & 2z^{n-2} & 2z^{n-3} & 2z^{n-4} & \\cdots & 2z & 0\\\\\nz^n & \\sqrt{2}z^{n-1} & \\sqrt{2}z^{n-2} & \\sqrt{2}z^{n-3} & \\cdots & \\sqrt{2}z^2 & z\n\\end{bmatrix}\n\\tag{16}\\label{eq:16}\n\\]\n\nwith $z=e^{-i\\theta}$. When $n=2$, these should be interpreted as\n\n\\[\ny_\\theta=[z,0,z^{-1},\\ldots,z^{1-M}]^T \\quad \\text{and} \\quad \\tilde{Y}_\\theta=\\frac{1}{4}\\begin{bmatrix} z & 0 \\\\ z^2 & z \\end{bmatrix}.\n\\tag{17}\\label{eq:17}\n\\]\n\\end{theorem}",
+    "proof": "",
+    "direct_answer": "",
+    "题目类型": "其他",
+    "预估难度": "",
+    "source": "OptimizationPaper",
+    "source_idx": ""
+  },
+  {
+    "index": 9,
+    "problem": "\\begin{proposition}\n\\label{prop:0.3}\nFix $M=m=1$ and $p$ by $p(\\zeta)=\\zeta$, equivalently $c=[0,1]^T$, and write\n\\[\n\\label{eq:0.u9}\n\\check f(A)=f(c,A)=\\frac{\\check\\tau(A)}{\\check\\beta(A)}=\\frac{\\tau(c,A)}{\\beta(c,A)}.\n\\]\nLet $N=n=3$ and fix $A$ to be given by $\\hat A$ in (2), that is, a $3\\times 3$ Jordan block with zero on the diagonal, scaled by $\\sqrt{2}$. Then $W(A)$ is the unit disk $\\mathcal{D}$, so the numerator $\\check\\tau(A)=1$, but the denominator $\\check\\beta(A)=\\sqrt{2}$. So, $\\check f(A)=1/\\sqrt{2}$. Now, let $D=A^2=2e_1e_3^*$. Then $\\tilde{f}'(A;D)=\\frac{\\frac{\\sqrt{2}}{2}-1}{2}<0$, and a similar argument shows that $\\tilde{f}'(A;-D)=\\tilde{f}'(A;D)<0$. Hence, the directional derivative $\\tilde{f}'(A;\\cdot)$ is not sublinear, and it follows from the discussion in Sect.~2 that $\\tilde{f}$ is not regular at $A$, and so $f$ is not regular at $(c,A)$.\n\\end{proposition}",
+    "proof": "",
+    "direct_answer": "",
+    "题目类型": "其他",
+    "预估难度": "",
+    "source": "OptimizationPaper",
+    "source_idx": ""
+  },
+  {
+    "index": 10,
+    "problem": "\\begin{theorem}\n\\label{thm:0.3}\ngives conditions under which the ratio $f$ is (Clarke) regular, and Theorem 4confirms that $f$ is regular at $(c,A)$ given by (12) and (13). However, under the same conditions, it follows from the representation (7) of the numerator and the smoothness of the denominator that the ratio has the stronger property of prox-regularity at $(c,A)$. Indeed, it can be written locally as the sum of a continuous convex function and a $C^2$ smooth function [19, Thm. 10.33].\n\\end{theorem}",
+    "proof": "",
+    "direct_answer": "",
+    "题目类型": "其他",
+    "预估难度": "",
+    "source": "OptimizationPaper",
+    "source_idx": ""
+  }
+]
