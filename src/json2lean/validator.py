@@ -49,10 +49,10 @@ def compile_lean_file(
             }],
         )
 
-    warnings, errors = _parse_output(r.stdout, str(filepath))
+    warnings, errors = _parse_output(r.stdout + "\n" + r.stderr, str(filepath))
     return CompileResult(
         filename=filepath.name,
-        stdout=r.stdout,
+        stdout=r.stdout + "\n" + r.stderr,
         returncode=r.returncode,
         warnings=warnings,
         errors=errors,

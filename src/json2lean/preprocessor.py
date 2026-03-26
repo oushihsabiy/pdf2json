@@ -51,15 +51,9 @@ def _validate_candidate(original: Dict[str, Any], candidate: Any) -> str:
     if not isinstance(candidate, dict):
         return "Output must decode to a JSON object."
 
-    if list(candidate.keys()) != list(original.keys()):
-        return "The output object must keep exactly the same keys in exactly the same order."
-
-    for key, value in original.items():
-        if key == "problem":
-            continue
-        if candidate.get(key) != value:
-            return f"Field '{key}' was modified, but only 'problem' may change."
-
+    # Only check that 'problem' exists and is a string; allow flexible schemas.
+    if "problem" not in candidate:
+        return "Output must contain a 'problem' field."
     if not isinstance(candidate.get("problem"), str):
         return "Field 'problem' must remain a string."
 

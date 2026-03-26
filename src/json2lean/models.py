@@ -44,11 +44,16 @@ class Exercise:
         if not self.label:
             self.label = str(
                 self.raw.get("source_idx")
+                or self.raw.get("题目ID")
                 or self.raw.get("index")
                 or self.index
             )
         if not self.problem:
-            self.problem = self.raw.get("problem", "")
+            self.problem = (
+                self.raw.get("problem")
+                or self.raw.get("题目内容")
+                or ""
+            )
 
     @property
     def is_valid(self) -> bool:
