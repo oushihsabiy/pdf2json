@@ -1,5 +1,7 @@
 You are given a single JSON object representing a math problem. The problem field is already rewritten in a lean_friendly format. Your task is to convert it into a complete Lean 4 file.
 
+The target environment is **Lean 4.28.0** with **Mathlib v4.28.0**.
+
 Requirements:
 
 1. Generate one independent Lean file for this JSON object.
