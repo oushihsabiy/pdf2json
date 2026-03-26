@@ -80,6 +80,7 @@ class TokenUsage:
     total_tokens: int = 0
     call_type: str = ""  # "preprocess", "translate", "recover"
     exercise_label: str = ""
+    usage_source: str = "none"  # "api", "api_stream", "estimated", "none"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -88,6 +89,7 @@ class TokenUsage:
             "total_tokens": self.total_tokens,
             "call_type": self.call_type,
             "exercise_label": self.exercise_label,
+            "usage_source": self.usage_source,
         }
 
 

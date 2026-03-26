@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from typing import Any, Dict, List, Optional
 
@@ -35,10 +36,18 @@ class APIClient:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _collect_stream(stream: Any) -> str:
+    def _collect_stream(stream: Any) -> tuple[str, Optional[Dict[str, int]]]:
         parts: List[str] = []
+        usage: Optional[Dict[str, int]] = None
         try:
             for chunk in stream:
+                chunk_usage = getattr(chunk, "usage", None)
+                if chunk_usage:
+                    usage = {
+                        "prompt_tokens": getattr(chunk_usage, "prompt_tokens", 0) or 0,
+                        "completion_tokens": getattr(chunk_usage, "completion_tokens", 0) or 0,
+                        "total_tokens": getattr(chunk_usage, "total_tokens", 0) or 0,
+                    }
                 choices = getattr(chunk, "choices", None) or []
                 if not choices:
                     continue
@@ -55,7 +64,15 @@ class APIClient:
                     close_fn()
                 except Exception:
                     pass
-        return "".join(parts)
+        return "".join(parts), usage
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """Rough token estimate fallback when provider omits usage."""
+        stripped = (text or "").strip()
+        if not stripped:
+            return 0
+        return max(1, math.ceil(len(stripped) / 4))
 
     # ------------------------------------------------------------------
     # Core chat call
@@ -89,7 +106,12 @@ class APIClient:
 
         # Try non-streaming first; fall back to streaming if forced.
         if self._force_stream is True:
-            text = self._do_stream(kwargs)
+            text, stream_usage = self._do_stream(kwargs)
+            if stream_usage:
+                usage.prompt_tokens = stream_usage["prompt_tokens"]
+                usage.completion_tokens = stream_usage["completion_tokens"]
+                usage.total_tokens = stream_usage["total_tokens"]
+                usage.usage_source = "api_stream"
         else:
             try:
                 resp = self._client.chat.completions.create(**kwargs)
@@ -99,19 +121,36 @@ class APIClient:
                     usage.prompt_tokens = resp.usage.prompt_tokens or 0
                     usage.completion_tokens = resp.usage.completion_tokens or 0
                     usage.total_tokens = resp.usage.total_tokens or 0
+                    usage.usage_source = "api"
             except Exception as err:
                 if "stream must be set to true" in str(err).lower():
                     self._force_stream = True
-                    text = self._do_stream(kwargs)
+                    text, stream_usage = self._do_stream(kwargs)
+                    if stream_usage:
+                        usage.prompt_tokens = stream_usage["prompt_tokens"]
+                        usage.completion_tokens = stream_usage["completion_tokens"]
+                        usage.total_tokens = stream_usage["total_tokens"]
+                        usage.usage_source = "api_stream"
                 else:
                     raise
+
+        if usage.total_tokens <= 0:
+            usage.prompt_tokens = self._estimate_tokens(prompt)
+            usage.completion_tokens = self._estimate_tokens(text)
+            usage.total_tokens = usage.prompt_tokens + usage.completion_tokens
+            usage.usage_source = "estimated"
 
         self.usage_log.append(usage)
         return text
 
-    def _do_stream(self, kwargs: Dict[str, Any]) -> str:
-        stream = self._client.chat.completions.create(stream=True, **kwargs)
-        return self._collect_stream(stream).strip()
+    def _do_stream(self, kwargs: Dict[str, Any]) -> tuple[str, Optional[Dict[str, int]]]:
+        stream = self._client.chat.completions.create(
+            stream=True,
+            stream_options={"include_usage": True},
+            **kwargs,
+        )
+        text, usage = self._collect_stream(stream)
+        return text.strip(), usage
 
     # ------------------------------------------------------------------
     # Aggregation helpers
