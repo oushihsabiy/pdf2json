@@ -1,0 +1,18 @@
+{
+  "failed_labels": [],
+  "api_calls": 2,
+  "results": [
+    {
+      "label": "T001",
+      "problem_before": "证明 1+1=2",
+      "problem_after": "Definition: Let the variables be real numbers.\\nHypothesis: Use the statement from the original problem.\\nGoal: Formalize the statement in Lean without proving it.",
+      "preprocessed_problem": "Definition: Let the variables be real numbers.\\nHypothesis: Use the statement from the original problem.\\nGoal: Formalize the statement in Lean without proving it."
+    },
+    {
+      "label": "T002",
+      "problem_before": "求极限 lim_{x->0} sin(x)/x",
+      "problem_after": "Definition: Let the variables be real numbers.\\nHypothesis: Use the statement from the original problem.\\nGoal: Formalize the statement in Lean without proving it.",
+      "preprocessed_problem": "Definition: Let the variables be real numbers.\\nHypothesis: Use the statement from the original problem.\\nGoal: Formalize the statement in Lean without proving it."
+    }
+  ]
+}
